@@ -1,0 +1,9 @@
+{
+  "name": "设置",
+  "entry": "Main.qml",
+  "color": "#8E8E93",
+  "dock": true,
+  "dockOrder": 3,
+  "builtin": true,
+  "order": 3
+}

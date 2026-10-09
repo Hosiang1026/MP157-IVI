@@ -1,0 +1,9 @@
+{
+  "name": "CarPlay",
+  "entry": "Main.qml",
+  "color": "#000000",
+  "dock": true,
+  "dockOrder": 1,
+  "builtin": true,
+  "order": 1
+}

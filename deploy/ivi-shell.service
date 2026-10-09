@@ -1,0 +1,21 @@
+[Unit]
+Description=MP157 IVI Shell
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ivi
+Environment=QT_QPA_PLATFORM=eglfs
+Environment=QT_QPA_EGLFS_PHYSICAL_WIDTH=154
+Environment=QT_QPA_EGLFS_PHYSICAL_HEIGHT=87
+Environment=LD_LIBRARY_PATH=/opt/ivi/qt/lib
+Environment=QT_PLUGIN_PATH=/opt/ivi/qt/plugins
+Environment=QML2_IMPORT_PATH=/opt/ivi/qt/qml
+ExecStart=/opt/ivi/run-ivi-shell.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

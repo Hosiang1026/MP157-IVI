@@ -1,0 +1,8 @@
+build/
+build-mp157/
+dist/
+.vs/
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+assets/carplay/offline-mfi/

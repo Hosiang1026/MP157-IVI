@@ -1,0 +1,48 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "windows",
+      "displayName": "Windows MSVC",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "D:/Qt/6.8.3/msvc2022_64",
+        "IVI_BUILD_BOARD_PROBE": "OFF"
+      }
+    },
+    {
+      "name": "mp157",
+      "displayName": "STM32MP157 (OpenSTLinux SDK)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-mp157",
+      "toolchainFile": "${sourceDir}/cmake/stm32mp157-toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INSTALL_PREFIX": "/opt/ivi",
+        "IVI_BUILD_BOARD_PROBE": "ON"
+      },
+      "environment": {
+        "IVI_QT6_DIR": "$penv{IVI_QT6_DIR}"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows",
+      "configurePreset": "windows",
+      "configuration": "Debug"
+    },
+    {
+      "name": "mp157",
+      "configurePreset": "mp157",
+      "targets": ["ivi-shell", "board-probe"]
+    }
+  ]
+}

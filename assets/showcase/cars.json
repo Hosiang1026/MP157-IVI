@@ -1,0 +1,10 @@
+{
+  "default": "sedan",
+  "cars": [
+    { "id": "sedan", "name": "轿车", "folder": "sedan", "import": "sedan.jpg" },
+    { "id": "suv", "name": "SUV", "folder": "suv", "import": "suv.jpg" },
+    { "id": "sport", "name": "运动", "folder": "sport", "import": "sport.jpg" },
+    { "id": "ev", "name": "纯电", "folder": "ev", "import": "ev.jpg" },
+    { "id": "mpv", "name": "MPV", "folder": "mpv", "import": "mpv.jpg" }
+  ]
+}

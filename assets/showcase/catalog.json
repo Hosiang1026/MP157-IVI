@@ -1,0 +1,35 @@
+{
+  "default": "sedan",
+  "cars": [
+    {
+      "id": "sedan",
+      "name": "轿车",
+      "folder": "sedan",
+      "frames": 1
+    },
+    {
+      "id": "suv",
+      "name": "SUV",
+      "folder": "suv",
+      "frames": 1
+    },
+    {
+      "id": "sport",
+      "name": "运动",
+      "folder": "sport",
+      "frames": 1
+    },
+    {
+      "id": "ev",
+      "name": "纯电",
+      "folder": "ev",
+      "frames": 1
+    },
+    {
+      "id": "mpv",
+      "name": "MPV",
+      "folder": "mpv",
+      "frames": 1
+    }
+  ]
+}

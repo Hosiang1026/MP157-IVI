@@ -1,0 +1,8 @@
+{
+  "name": "电台",
+  "entry": "Main.qml",
+  "color": "#FF9F0A",
+  "dock": false,
+  "builtin": false,
+  "order": 5
+}

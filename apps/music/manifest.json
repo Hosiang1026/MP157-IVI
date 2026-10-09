@@ -1,0 +1,9 @@
+{
+  "name": "音乐",
+  "entry": "Main.qml",
+  "color": "#FF2D55",
+  "dock": true,
+  "dockOrder": 0,
+  "builtin": true,
+  "order": 0
+}

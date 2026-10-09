@@ -1,0 +1,8 @@
+{
+  "name": "视频",
+  "entry": "Main.qml",
+  "color": "#5E5CE6",
+  "dock": false,
+  "builtin": true,
+  "order": 5
+}
