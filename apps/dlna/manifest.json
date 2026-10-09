@@ -1,0 +1,8 @@
+{
+  "name": "DLNA",
+  "entry": "Main.qml",
+  "color": "#7D7AFF",
+  "dock": false,
+  "builtin": true,
+  "order": 9
+}

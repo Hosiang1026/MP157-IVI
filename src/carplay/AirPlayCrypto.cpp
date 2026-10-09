@@ -14,6 +14,8 @@
 #include <windows.h>
 #include <bcrypt.h>
 #pragma comment(lib, "bcrypt.lib")
+#else
+#include <openssl/evp.h>
 #endif
 
 namespace AirPlayCrypto {
@@ -434,8 +436,10 @@ QByteArray sha1(const QList<QByteArray> &parts)
     BCryptCloseAlgorithmProvider(alg, 0);
     return out;
 #else
-    Q_UNUSED(parts);
-    return {};
+    QByteArray all;
+    for (const QByteArray &p : parts)
+        all.append(p);
+    return QCryptographicHash::hash(all, QCryptographicHash::Sha1);
 #endif
 }
 
@@ -449,9 +453,9 @@ QByteArray sha256(const QList<QByteArray> &parts)
 
 QByteArray aesCtr128(const QByteArray &key16, const QByteArray &iv16, const QByteArray &data)
 {
-#ifdef Q_OS_WIN
     if (key16.size() != 16 || iv16.size() != 16)
         return {};
+#ifdef Q_OS_WIN
     BCRYPT_ALG_HANDLE alg = nullptr;
     BCRYPT_KEY_HANDLE key = nullptr;
     if (BCryptOpenAlgorithmProvider(&alg, BCRYPT_AES_ALGORITHM, nullptr, 0) != 0)
@@ -488,10 +492,24 @@ QByteArray aesCtr128(const QByteArray &key16, const QByteArray &iv16, const QByt
     BCryptCloseAlgorithmProvider(alg, 0);
     return out;
 #else
-    Q_UNUSED(key16);
-    Q_UNUSED(iv16);
-    Q_UNUSED(data);
-    return {};
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx)
+        return {};
+    QByteArray out(data.size(), 0);
+    int outLen = 0;
+    int finalLen = 0;
+    bool ok = EVP_EncryptInit_ex(ctx, EVP_aes_128_ctr(), nullptr,
+                                 reinterpret_cast<const unsigned char *>(key16.constData()),
+                                 reinterpret_cast<const unsigned char *>(iv16.constData()))
+            == 1
+        && EVP_EncryptUpdate(ctx, reinterpret_cast<unsigned char *>(out.data()), &outLen,
+                             reinterpret_cast<const unsigned char *>(data.constData()), data.size())
+            == 1
+        && EVP_EncryptFinal_ex(ctx, reinterpret_cast<unsigned char *>(out.data()) + outLen, &finalLen) == 1;
+    EVP_CIPHER_CTX_free(ctx);
+    if (!ok)
+        return {};
+    return out;
 #endif
 }
 

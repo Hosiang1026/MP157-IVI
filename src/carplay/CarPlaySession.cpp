@@ -15,6 +15,7 @@
 #include <QFile>
 #include <QGuiApplication>
 #include <QMetaObject>
+#include <QHostAddress>
 #include <QNetworkInterface>
 #include <QScreen>
 #include <QSettings>
@@ -105,6 +106,7 @@ CarPlaySession::CarPlaySession(QObject *parent)
         m_airPlayUp.store(true);
         m_airPlayWatchdog.stop();
         m_airPlayNudge.stop();
+        rememberPhoneIp(peer);
         setStatus(QStringLiteral("AirPlay 已接入"));
         setDetail(QStringLiteral("手机 %1 已发起会话").arg(peer));
         carPlayLog(QStringLiteral("airplay phone session %1").arg(peer));
@@ -133,8 +135,14 @@ CarPlaySession::CarPlaySession(QObject *parent)
     });
     connect(&m_bonjour, &BonjourAdvertiser::ctrlProbed, this, [this](const QString &host, quint16 port,
                                                                    const QString &status) {
+        rememberPhoneIp(host);
         setDetail(QStringLiteral("已探测手机 %1:%2 %3").arg(host).arg(port).arg(status));
         carPlayLog(QStringLiteral("ctrl probed %1:%2 %3").arg(host).arg(port).arg(status));
+    });
+    connect(&m_bonjour, &BonjourAdvertiser::preferredHostInvalid, this, [this](const QString &host) {
+        carPlayLog(QStringLiteral("preferred phone ip invalid %1").arg(host));
+        if (m_lastPhoneIp == host)
+            clearPhoneIp();
     });
 
     reloadIdentity();
@@ -177,16 +185,6 @@ void CarPlaySession::setWifiPassword(const QString &password)
     emitCanStart();
 }
 
-QString CarPlaySession::phoneIp() const { return m_phoneIp; }
-
-void CarPlaySession::setPhoneIp(const QString &ip)
-{
-    if (m_phoneIp == ip)
-        return;
-    m_phoneIp = ip.trimmed();
-    saveSettings();
-    emit wifiChanged();
-}
 QString CarPlaySession::bluetoothAddress() const { return m_bluetoothAddress; }
 QString CarPlaySession::bluetoothName() const { return m_bluetoothName; }
 QVariantList CarPlaySession::wifiNetworks() const { return m_wifiNetworks; }
@@ -215,7 +213,7 @@ void CarPlaySession::loadSettings()
     m_bluetoothName = settings.value(QStringLiteral("bluetoothName")).toString();
     m_wifiSsid = settings.value(QStringLiteral("wifiSsid")).toString();
     m_wifiPassword = settings.value(QStringLiteral("wifiPassword")).toString();
-    m_phoneIp = settings.value(QStringLiteral("phoneIp"), QStringLiteral("192.168.2.101")).toString();
+    m_lastPhoneIp = settings.value(QStringLiteral("lastPhoneIp")).toString().trimmed();
     settings.endGroup();
 }
 
@@ -227,8 +225,41 @@ void CarPlaySession::saveSettings() const
     settings.setValue(QStringLiteral("bluetoothName"), m_bluetoothName);
     settings.setValue(QStringLiteral("wifiSsid"), m_wifiSsid);
     settings.setValue(QStringLiteral("wifiPassword"), m_wifiPassword);
-    settings.setValue(QStringLiteral("phoneIp"), m_phoneIp);
+    settings.setValue(QStringLiteral("lastPhoneIp"), m_lastPhoneIp);
     settings.endGroup();
+}
+
+void CarPlaySession::rememberPhoneIp(const QString &ip)
+{
+    QString host = ip.trimmed();
+    if (host.startsWith(QLatin1Char('['))) {
+        const int end = host.indexOf(QLatin1Char(']'));
+        host = end > 0 ? host.mid(1, end - 1) : host;
+    } else {
+        const int colon = host.lastIndexOf(QLatin1Char(':'));
+        if (colon > 0 && host.count(QLatin1Char(':')) == 1)
+            host = host.left(colon);
+    }
+    const QHostAddress addr(host);
+    if (addr.isNull() || addr.isLoopback() || addr == QHostAddress::AnyIPv4)
+        return;
+    host = addr.toString();
+    if (m_lastPhoneIp == host)
+        return;
+    m_lastPhoneIp = host;
+    m_bonjour.setPreferredHost(host);
+    saveSettings();
+    carPlayLog(QStringLiteral("remember phone ip %1").arg(host));
+}
+
+void CarPlaySession::clearPhoneIp()
+{
+    if (m_lastPhoneIp.isEmpty())
+        return;
+    carPlayLog(QStringLiteral("clear phone ip %1").arg(m_lastPhoneIp));
+    m_lastPhoneIp.clear();
+    m_bonjour.setPreferredHost(QString());
+    saveSettings();
 }
 
 void CarPlaySession::reloadIdentity()
@@ -419,6 +450,18 @@ void CarPlaySession::emitCanStart()
     emit canStartChanged();
 }
 
+void CarPlaySession::reconnectLast()
+{
+    refreshWifi();
+    refreshBluetooth();
+    if (!canStart()) {
+        setStatus(QStringLiteral("等待连接"));
+        setDetail(QStringLiteral("请确认上次手机、Wi‑Fi 与密码仍可用"));
+        return;
+    }
+    start();
+}
+
 void CarPlaySession::start()
 {
     recoverStaleRunning();
@@ -564,9 +607,8 @@ void CarPlaySession::beginWireless()
         setRunning(false);
         return;
     }
-    if (m_phoneIp.isEmpty())
-        m_phoneIp = QStringLiteral("192.168.2.101");
-    m_bonjour.setPreferredHost(m_phoneIp);
+    m_bonjour.setPreferredHost(m_lastPhoneIp);
+    m_bonjour.browseNow();
 
     setStatus(QStringLiteral("连接蓝牙"));
     setDetail(m_bluetoothName.isEmpty() ? m_bluetoothAddress

@@ -1,8 +1,11 @@
 {
   "name": "电台",
   "entry": "Main.qml",
-  "color": "#FF9F0A",
+  "color": "#FFD60A",
   "dock": false,
   "builtin": false,
-  "order": 5
+  "order": 5,
+  "blurb": "收听 FM / AM，支持预设电台和搜台",
+  "version": "1.1",
+  "sizeKb": 48
 }

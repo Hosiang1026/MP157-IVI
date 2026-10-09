@@ -15,18 +15,23 @@ Item {
     signal holdMove(real sceneX, real sceneY)
     signal holdDrop(real sceneX, real sceneY)
 
-    readonly property bool drawn: ["music", "phone", "vehicle", "settings", "store", "radio", "video", "map"].indexOf(appId) >= 0
+    readonly property bool drawn: ["music", "phone", "vehicle", "settings", "store", "radio", "video", "map", "carplay", "weather", "airplay", "dlna", "dashcam"].indexOf(appId) >= 0
+    readonly property real squircle: 0.2237
 
-    opacity: dimmed ? 0.35 : 1
-    scale: area.pressed && !area.dragging ? 0.92 : 1
-    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+    opacity: dimmed ? 0.32 : 1
+    scale: area.pressed && !area.dragging ? 0.86 : 1
+    Behavior on scale {
+        NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: 2.2 }
+    }
+    Behavior on opacity { NumberAnimation { duration: 160 } }
 
     Column {
         anchors.horizontalCenter: parent.horizontalCenter
-        y: root.showLabel ? 4 : Math.max(0, (root.height - height) / 2)
-        spacing: 5
+        y: root.showLabel ? 2 : Math.max(0, (root.height - height) / 2)
+        spacing: Math.max(6, Math.round(root.iconSize * 0.07))
 
         Item {
+            id: iconBox
             width: root.iconSize
             height: root.iconSize
             anchors.horizontalCenter: parent.horizontalCenter
@@ -35,53 +40,94 @@ Item {
                 id: tile
                 width: root.iconSize
                 height: root.iconSize
-                radius: root.iconSize * 0.223
+                radius: root.iconSize * root.squircle
                 anchors.fill: parent
+                antialiasing: true
                 gradient: Gradient {
-                    GradientStop { position: 0.0; color: Qt.lighter(root.tileColor, 1.18) }
-                    GradientStop { position: 1.0; color: root.tileColor }
+                    GradientStop { position: 0.0; color: Qt.lighter(root.tileColor, 1.28) }
+                    GradientStop { position: 0.42; color: Qt.lighter(root.tileColor, 1.06) }
+                    GradientStop { position: 0.78; color: root.tileColor }
+                    GradientStop { position: 1.0; color: Qt.darker(root.tileColor, 1.12) }
                 }
 
-                Image {
-                    anchors.centerIn: parent
-                    width: parent.width * 0.56
-                    height: parent.height * 0.56
-                    source: root.iconSource
-                    visible: root.iconSource !== "" && !root.drawn
-                    fillMode: Image.PreserveAspectFit
-                }
-
-                AppGlyph {
+                Item {
+                    id: glyphHost
                     anchors.fill: parent
-                    anchors.margins: parent.width * 0.2
-                    appId: root.appId
-                    visible: root.drawn && root.iconSource === ""
+                    anchors.margins: parent.width * 0.18
+
+                    Image {
+                        anchors.centerIn: parent
+                        width: parent.width * 0.92
+                        height: parent.height * 0.92
+                        source: root.iconSource
+                        visible: root.iconSource !== "" && !root.drawn
+                        fillMode: Image.PreserveAspectFit
+                        mipmap: true
+                        smooth: true
+                    }
+
+                    AppGlyph {
+                        anchors.fill: parent
+                        appId: root.appId
+                        visible: root.drawn && root.iconSource === ""
+                    }
+
+                    Text {
+                        anchors.centerIn: parent
+                        visible: !root.drawn && root.iconSource === ""
+                        text: root.label.length > 0 ? root.label.charAt(0) : ""
+                        color: "#FFFFFF"
+                        font.pixelSize: root.iconSize * 0.38
+                        font.weight: Font.DemiBold
+                    }
                 }
 
-                Text {
-                    anchors.centerIn: parent
-                    visible: !root.drawn && root.iconSource === ""
-                    text: root.label.length > 0 ? root.label.charAt(0) : ""
-                    color: "#FFFFFF"
-                    font.pixelSize: root.iconSize * 0.38
-                    font.bold: true
+                Rectangle {
+                    anchors.fill: parent
+                    radius: parent.radius
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: "#55FFFFFF" }
+                        GradientStop { position: 0.18; color: "#22FFFFFF" }
+                        GradientStop { position: 0.45; color: "#00FFFFFF" }
+                        GradientStop { position: 0.82; color: "#08000000" }
+                        GradientStop { position: 1.0; color: "#22000000" }
+                    }
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: parent.radius
+                    color: "transparent"
+                    border.width: 1
+                    border.color: "#40FFFFFF"
+                    opacity: 0.9
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: 1
+                    radius: Math.max(0, parent.radius - 1)
+                    color: "transparent"
+                    border.width: 1
+                    border.color: "#18000000"
                 }
             }
         }
 
         Text {
-            width: Math.max(root.iconSize + 24, root.labelSize * 5)
+            width: Math.max(root.iconSize + 28, root.labelSize * 5.2)
             visible: root.showLabel
             height: root.showLabel ? implicitHeight : 0
             text: root.label
-            color: "#FFFFFF"
+            color: "#F2FFFFFF"
             font.pixelSize: root.labelSize
-            font.bold: true
+            font.weight: Font.Medium
+            font.letterSpacing: -0.15
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
             anchors.horizontalCenter: parent.horizontalCenter
             style: Text.Raised
-            styleColor: "#99000000"
+            styleColor: "#66000000"
         }
     }
 

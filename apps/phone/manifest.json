@@ -1,9 +1,8 @@
 {
   "name": "电话",
   "entry": "Main.qml",
-  "color": "#34C759",
-  "dock": true,
-  "dockOrder": 1,
+  "color": "#30D158",
+  "dock": false,
   "builtin": true,
   "order": 1
 }

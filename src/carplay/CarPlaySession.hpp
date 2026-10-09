@@ -24,7 +24,6 @@ class CarPlaySession : public QObject {
     Q_PROPERTY(bool wifiConnected READ wifiConnected NOTIFY wifiChanged)
     Q_PROPERTY(QString wifiSsid READ wifiSsid NOTIFY wifiChanged)
     Q_PROPERTY(QString wifiPassword READ wifiPassword WRITE setWifiPassword NOTIFY wifiChanged)
-    Q_PROPERTY(QString phoneIp READ phoneIp WRITE setPhoneIp NOTIFY wifiChanged)
     Q_PROPERTY(QString bluetoothAddress READ bluetoothAddress NOTIFY bluetoothChanged)
     Q_PROPERTY(QString bluetoothName READ bluetoothName NOTIFY bluetoothChanged)
     Q_PROPERTY(QVariantList wifiNetworks READ wifiNetworks NOTIFY wifiNetworksChanged)
@@ -46,8 +45,6 @@ public:
     QString wifiSsid() const;
     QString wifiPassword() const;
     void setWifiPassword(const QString &password);
-    QString phoneIp() const;
-    void setPhoneIp(const QString &ip);
     QString bluetoothAddress() const;
     QString bluetoothName() const;
     QVariantList wifiNetworks() const;
@@ -67,6 +64,7 @@ public:
     Q_INVOKABLE void setDisplaySize(int width, int height);
     Q_INVOKABLE void sendTouch(double xNorm, double yNorm, bool down);
     Q_INVOKABLE void start();
+    Q_INVOKABLE void reconnectLast();
     Q_INVOKABLE void stop();
 
 signals:
@@ -89,6 +87,8 @@ private:
     void setRunning(bool running);
     void loadSettings();
     void saveSettings() const;
+    void rememberPhoneIp(const QString &ip);
+    void clearPhoneIp();
     void beginWireless();
     void stopInternal();
     void recoverStaleRunning();
@@ -107,7 +107,7 @@ private:
     QString m_detail;
     QString m_wifiSsid;
     QString m_wifiPassword;
-    QString m_phoneIp;
+    QString m_lastPhoneIp;
     QString m_bluetoothAddress;
     QString m_bluetoothName;
     QString m_deviceId;

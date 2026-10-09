@@ -20,6 +20,7 @@ mkdir -p "$STAGE"
 
 cp -a "$SHELL_BIN" "$STAGE/ivi-shell"
 [ -x "$PROBE_BIN" ] && cp -a "$PROBE_BIN" "$STAGE/board-probe"
+cp -a "$ROOT/version.json" "$STAGE/version.json"
 cp -a "$ROOT/apps" "$STAGE/apps"
 cp -a "$ROOT/feed" "$STAGE/feed"
 mkdir -p "$STAGE/wallpapers"
@@ -48,5 +49,34 @@ fi
 OUT=${IVI_BUNDLE:-"$ROOT/dist/mp157-ivi.tar.gz"}
 mkdir -p "$(dirname "$OUT")"
 tar czf "$OUT" -C "$STAGE" .
+
+VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/version.json" | head -1)
+VERSION=${VERSION:-0.0.0}
+if command -v sha256sum >/dev/null 2>&1; then
+  SHA=$(sha256sum "$OUT" | awk '{print $1}')
+elif command -v shasum >/dev/null 2>&1; then
+  SHA=$(shasum -a 256 "$OUT" | awk '{print $1}')
+else
+  SHA=
+fi
+SIZE=$(wc -c < "$OUT" | tr -d ' ')
+MANIFEST=${IVI_UPDATE_MANIFEST_OUT:-"${OUT%.tar.gz}.json"}
+BASE_URL=${IVI_UPDATE_BASE_URL:-}
+if [ -n "$BASE_URL" ]; then
+  PKG_URL="${BASE_URL%/}/$(basename "$OUT")"
+else
+  PKG_URL="$(basename "$OUT")"
+fi
+cat > "$MANIFEST" <<EOF
+{
+  "version": "$VERSION",
+  "url": "$PKG_URL",
+  "sha256": "$SHA",
+  "size": $SIZE,
+  "notes": ""
+}
+EOF
+
 echo "stage: $STAGE"
 echo "bundle: $OUT"
+echo "manifest: $MANIFEST"

@@ -12,6 +12,9 @@ struct AppItem {
     QString entry;
     QString icon;
     QString color;
+    QString blurb;
+    QString version;
+    int sizeKb = 0;
     bool dock = false;
     int dockOrder = 100;
     bool builtin = false;
@@ -28,6 +31,9 @@ public:
         EntryRole,
         IconRole,
         ColorRole,
+        BlurbRole,
+        VersionRole,
+        SizeKbRole,
         DockRole,
         DockOrderRole,
         BuiltinRole

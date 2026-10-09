@@ -5,11 +5,17 @@
 #include <QFileInfo>
 #include <cstring>
 
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+#define IVI_FFMPEG_DYN 1
+#endif
+
 #ifdef Q_OS_WIN
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#elif defined(Q_OS_LINUX)
+#include <dlfcn.h>
 #endif
 
 namespace {
@@ -106,7 +112,7 @@ QImage yuv420ToRgb(const uchar *yPlane, const uchar *uPlane, const uchar *vPlane
     return img;
 }
 
-#ifdef Q_OS_WIN
+#ifdef IVI_FFMPEG_DYN
 constexpr int kAvCodecIdH264 = 27;
 constexpr int kAvPixFmtYuv420P = 0;
 constexpr int kAvPixFmtYuvj420P = 12;
@@ -149,14 +155,22 @@ using FnAvNewPacket = int (*)(AVPacket *, int);
 using FnAvFrameAlloc = AVFrame *(*)();
 using FnAvFrameFree = void (*)(AVFrame **);
 using FnAvFrameUnref = void (*)(AVFrame *);
+
+#ifdef Q_OS_WIN
+using LibHandle = HMODULE;
+static void *sym(LibHandle h, const char *name) { return reinterpret_cast<void *>(GetProcAddress(h, name)); }
+#else
+using LibHandle = void *;
+static void *sym(LibHandle h, const char *name) { return dlsym(h, name); }
+#endif
 #endif
 
 }
 
 struct AirPlayH264Decoder::Impl {
-#ifdef Q_OS_WIN
-    HMODULE avcodec = nullptr;
-    HMODULE avutil = nullptr;
+#ifdef IVI_FFMPEG_DYN
+    LibHandle avcodec = nullptr;
+    LibHandle avutil = nullptr;
     FnAvcodecFindDecoder findDecoder = nullptr;
     FnAvcodecAllocContext3 allocContext = nullptr;
     FnAvcodecOpen2 open2 = nullptr;
@@ -180,21 +194,34 @@ struct AirPlayH264Decoder::Impl {
     QString lastError;
     bool started = false;
 
-    HMODULE loadDll(const wchar_t *name)
+#ifdef Q_OS_WIN
+    LibHandle loadDll(const wchar_t *name)
     {
         const QString path = QDir(QCoreApplication::applicationDirPath())
                                  .filePath(QString::fromWCharArray(name));
         if (QFileInfo::exists(path)) {
-            if (const HMODULE mod = LoadLibraryW(reinterpret_cast<LPCWSTR>(path.utf16())))
+            if (const LibHandle mod = LoadLibraryW(reinterpret_cast<LPCWSTR>(path.utf16())))
                 return mod;
         }
         return LoadLibraryW(name);
     }
+#else
+    LibHandle loadSo(const char *name)
+    {
+        const QString path = QDir(QCoreApplication::applicationDirPath()).filePath(QString::fromUtf8(name));
+        if (QFileInfo::exists(path)) {
+            if (LibHandle mod = dlopen(path.toUtf8().constData(), RTLD_NOW | RTLD_GLOBAL))
+                return mod;
+        }
+        return dlopen(name, RTLD_NOW | RTLD_GLOBAL);
+    }
+#endif
 
     bool loadLibs()
     {
         if (avcodec && avutil)
             return true;
+#ifdef Q_OS_WIN
         const QString appDir = QCoreApplication::applicationDirPath();
         SetDllDirectoryW(reinterpret_cast<LPCWSTR>(appDir.utf16()));
         loadDll(L"libwinpthread-1.dll");
@@ -206,20 +233,34 @@ struct AirPlayH264Decoder::Impl {
             lastError = QStringLiteral("load ffmpeg dll failed GetLastError=%1").arg(GetLastError());
             return false;
         }
-        findDecoder = reinterpret_cast<FnAvcodecFindDecoder>(GetProcAddress(avcodec, "avcodec_find_decoder"));
-        allocContext = reinterpret_cast<FnAvcodecAllocContext3>(GetProcAddress(avcodec, "avcodec_alloc_context3"));
-        open2 = reinterpret_cast<FnAvcodecOpen2>(GetProcAddress(avcodec, "avcodec_open2"));
-        freeContext = reinterpret_cast<FnAvcodecFreeContext>(GetProcAddress(avcodec, "avcodec_free_context"));
-        sendPacket = reinterpret_cast<FnAvcodecSendPacket>(GetProcAddress(avcodec, "avcodec_send_packet"));
-        receiveFrame = reinterpret_cast<FnAvcodecReceiveFrame>(GetProcAddress(avcodec, "avcodec_receive_frame"));
-        flushBuffers = reinterpret_cast<FnAvcodecFlushBuffers>(GetProcAddress(avcodec, "avcodec_flush_buffers"));
-        packetAlloc = reinterpret_cast<FnAvPacketAlloc>(GetProcAddress(avcodec, "av_packet_alloc"));
-        packetFree = reinterpret_cast<FnAvPacketFree>(GetProcAddress(avcodec, "av_packet_free"));
-        packetUnref = reinterpret_cast<FnAvPacketUnref>(GetProcAddress(avcodec, "av_packet_unref"));
-        newPacket = reinterpret_cast<FnAvNewPacket>(GetProcAddress(avcodec, "av_new_packet"));
-        frameAlloc = reinterpret_cast<FnAvFrameAlloc>(GetProcAddress(avutil, "av_frame_alloc"));
-        frameFree = reinterpret_cast<FnAvFrameFree>(GetProcAddress(avutil, "av_frame_free"));
-        frameUnref = reinterpret_cast<FnAvFrameUnref>(GetProcAddress(avutil, "av_frame_unref"));
+#else
+        static const char *kUtil[] = {"libavutil.so", "libavutil.so.59", "libavutil.so.58", "libavutil.so.57",
+                                      nullptr};
+        static const char *kCodec[] = {"libavcodec.so", "libavcodec.so.61", "libavcodec.so.60", "libavcodec.so.59",
+                                       "libavcodec.so.58", nullptr};
+        for (int i = 0; kUtil[i] && !avutil; ++i)
+            avutil = loadSo(kUtil[i]);
+        for (int i = 0; kCodec[i] && !avcodec; ++i)
+            avcodec = loadSo(kCodec[i]);
+        if (!avcodec || !avutil) {
+            lastError = QStringLiteral("load ffmpeg so failed");
+            return false;
+        }
+#endif
+        findDecoder = reinterpret_cast<FnAvcodecFindDecoder>(sym(avcodec, "avcodec_find_decoder"));
+        allocContext = reinterpret_cast<FnAvcodecAllocContext3>(sym(avcodec, "avcodec_alloc_context3"));
+        open2 = reinterpret_cast<FnAvcodecOpen2>(sym(avcodec, "avcodec_open2"));
+        freeContext = reinterpret_cast<FnAvcodecFreeContext>(sym(avcodec, "avcodec_free_context"));
+        sendPacket = reinterpret_cast<FnAvcodecSendPacket>(sym(avcodec, "avcodec_send_packet"));
+        receiveFrame = reinterpret_cast<FnAvcodecReceiveFrame>(sym(avcodec, "avcodec_receive_frame"));
+        flushBuffers = reinterpret_cast<FnAvcodecFlushBuffers>(sym(avcodec, "avcodec_flush_buffers"));
+        packetAlloc = reinterpret_cast<FnAvPacketAlloc>(sym(avcodec, "av_packet_alloc"));
+        packetFree = reinterpret_cast<FnAvPacketFree>(sym(avcodec, "av_packet_free"));
+        packetUnref = reinterpret_cast<FnAvPacketUnref>(sym(avcodec, "av_packet_unref"));
+        newPacket = reinterpret_cast<FnAvNewPacket>(sym(avcodec, "av_new_packet"));
+        frameAlloc = reinterpret_cast<FnAvFrameAlloc>(sym(avutil, "av_frame_alloc"));
+        frameFree = reinterpret_cast<FnAvFrameFree>(sym(avutil, "av_frame_free"));
+        frameUnref = reinterpret_cast<FnAvFrameUnref>(sym(avutil, "av_frame_unref"));
         if (!findDecoder || !allocContext || !open2 || !freeContext || !sendPacket || !receiveFrame
             || !flushBuffers || !packetAlloc || !packetFree || !packetUnref || !newPacket
             || !frameAlloc || !frameFree || !frameUnref) {
@@ -252,7 +293,7 @@ AirPlayH264Decoder::AirPlayH264Decoder()
 
 AirPlayH264Decoder::~AirPlayH264Decoder()
 {
-#ifdef Q_OS_WIN
+#ifdef IVI_FFMPEG_DYN
     m->close();
 #endif
     delete m;
@@ -260,7 +301,7 @@ AirPlayH264Decoder::~AirPlayH264Decoder()
 
 bool AirPlayH264Decoder::configure(const QByteArray &avcCIn)
 {
-#ifdef Q_OS_WIN
+#ifdef IVI_FFMPEG_DYN
     m->close();
     if (!m->loadLibs())
         return false;
@@ -305,16 +346,15 @@ bool AirPlayH264Decoder::configure(const QByteArray &avcCIn)
 
 void AirPlayH264Decoder::flush()
 {
-#ifdef Q_OS_WIN
+#ifdef IVI_FFMPEG_DYN
     if (m->ctx && m->flushBuffers)
         m->flushBuffers(m->ctx);
-#else
 #endif
 }
 
 QImage AirPlayH264Decoder::decode(const QByteArray &annexB)
 {
-#ifdef Q_OS_WIN
+#ifdef IVI_FFMPEG_DYN
     if (!m->started || annexB.isEmpty() || !m->ctx || !m->pkt || !m->frame)
         return {};
 
@@ -343,7 +383,7 @@ QImage AirPlayH264Decoder::decode(const QByteArray &annexB)
     for (int i = 0; i < 4; ++i) {
         m->frameUnref(m->frame);
         err = m->receiveFrame(m->ctx, m->frame);
-        if (err == -11) { // EAGAIN
+        if (err == -11) {
             m->lastError = QStringLiteral("need-more ffmpeg");
             return {};
         }
@@ -390,7 +430,7 @@ QImage AirPlayH264Decoder::decode(const QByteArray &annexB)
 
 QString AirPlayH264Decoder::lastError() const
 {
-#ifdef Q_OS_WIN
+#ifdef IVI_FFMPEG_DYN
     return m->lastError;
 #else
     return {};

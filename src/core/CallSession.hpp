@@ -10,6 +10,7 @@ class AudioFocus;
 class CallSession : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
+    Q_PROPERTY(bool ringing READ ringing NOTIFY ringingChanged)
     Q_PROPERTY(QString number READ number NOTIFY infoChanged)
     Q_PROPERTY(QString contactName READ contactName NOTIFY infoChanged)
     Q_PROPERTY(bool muted READ muted NOTIFY mutedChanged)
@@ -21,6 +22,7 @@ public:
     CallSession(AudioFocus *audio, QObject *parent = nullptr);
 
     bool active() const;
+    bool ringing() const;
     QString number() const;
     QString contactName() const;
     bool muted() const;
@@ -37,6 +39,7 @@ public:
 
 signals:
     void activeChanged();
+    void ringingChanged();
     void infoChanged();
     void mutedChanged();
     void speakerChanged();
@@ -45,6 +48,9 @@ signals:
 
 private:
     QString lookup(const QString &number) const;
+    void loadRecents();
+    void saveRecents() const;
+    void connectCall();
 
     AudioFocus *m_audio = nullptr;
     QVariantList m_contacts;
@@ -52,8 +58,10 @@ private:
     QString m_number;
     QString m_name;
     bool m_active = false;
+    bool m_ringing = false;
     bool m_muted = false;
     bool m_speaker = false;
     int m_elapsed = 0;
     QTimer m_timer;
+    QTimer m_ringTimer;
 };

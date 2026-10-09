@@ -10,6 +10,8 @@ class NavSession : public QObject {
     Q_PROPERTY(QString text READ text NOTIFY stepChanged)
     Q_PROPERTY(QString turn READ turn NOTIFY stepChanged)
     Q_PROPERTY(int speedLimit READ speedLimit NOTIFY stepChanged)
+    Q_PROPERTY(QString destination READ destination NOTIFY stepChanged)
+    Q_PROPERTY(int etaMin READ etaMin NOTIFY stepChanged)
 public:
     explicit NavSession(QObject *parent = nullptr);
 
@@ -17,8 +19,11 @@ public:
     QString text() const;
     QString turn() const;
     int speedLimit() const;
+    QString destination() const;
+    int etaMin() const;
 
     Q_INVOKABLE void start();
+    Q_INVOKABLE void startTo(const QString &destination);
     Q_INVOKABLE void stop();
 
 signals:
@@ -30,5 +35,7 @@ private:
 
     bool m_active = false;
     int m_index = 0;
+    int m_etaMin = 12;
+    QString m_destination;
     QTimer m_timer;
 };

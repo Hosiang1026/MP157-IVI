@@ -31,6 +31,8 @@ public:
     Q_INVOKABLE QVariantMap appInfo(const QString &key) const;
 
 private:
+    static constexpr int kMaxDock = 5;
+
     void reload();
     QString detectRoot() const;
     QStringList dockIds() const;

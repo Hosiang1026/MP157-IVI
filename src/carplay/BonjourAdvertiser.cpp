@@ -22,6 +22,12 @@ BonjourAdvertiser::BonjourAdvertiser(QObject *parent)
     connect(&m_socket, &QUdpSocket::readyRead, this, &BonjourAdvertiser::onReadyRead);
     m_browseTimer.setInterval(2000);
     connect(&m_browseTimer, &QTimer::timeout, this, &BonjourAdvertiser::browseCarPlayCtrl);
+    m_preferTimer.setSingleShot(true);
+    m_preferTimer.setInterval(2500);
+    connect(&m_preferTimer, &QTimer::timeout, this, [this] {
+        if (m_preferWaiting)
+            finishPreferredProbe(m_preferHit);
+    });
 }
 
 BonjourAdvertiser::~BonjourAdvertiser()
@@ -99,17 +105,51 @@ void BonjourAdvertiser::setPreferredHost(const QString &host)
     m_preferredHost = host.trimmed();
 }
 
+void BonjourAdvertiser::finishPreferredProbe(bool hit)
+{
+    if (!m_preferWaiting)
+        return;
+    m_preferWaiting = false;
+    m_preferPending = 0;
+    m_preferTimer.stop();
+    if (hit)
+        return;
+    const QString stale = m_preferredHost;
+    if (!stale.isEmpty()) {
+        emit log(QStringLiteral("preferred host stale %1 · fallback lan probe").arg(stale));
+        m_preferredHost.clear();
+        emit preferredHostInvalid(stale);
+    }
+    probeLanNeighbors();
+}
+
 void BonjourAdvertiser::browseNow()
 {
     sendAnnouncement();
     browseCarPlayCtrl();
-    if (!m_preferredHost.isEmpty()) {
-        for (quint16 port : {quint16(49152), quint16(49153), quint16(49154), quint16(49155)}) {
-            const QString key = m_preferredHost + QLatin1Char(':') + QString::number(port);
-            m_probed.remove(key);
-            probeHost(m_preferredHost, port);
-        }
+    if (m_preferredHost.isEmpty()) {
+        probeLanNeighbors();
+        return;
     }
+    m_preferWaiting = true;
+    m_preferHit = false;
+    m_preferPending = 0;
+    const QList<quint16> ports{49152, 49153, 49154, 49155, 7000, 5000, 47000};
+    for (quint16 port : ports) {
+        const QString key = m_preferredHost + QLatin1Char(':') + QString::number(port);
+        m_probed.remove(key);
+        ++m_preferPending;
+        const QHostAddress addr(m_preferredHost);
+        if (!addr.isNull())
+            probeCarPlayCtrl(addr, port, true);
+        else
+            --m_preferPending;
+    }
+    if (m_preferPending <= 0) {
+        finishPreferredProbe(false);
+        return;
+    }
+    m_preferTimer.start();
 }
 
 void BonjourAdvertiser::probeHost(const QString &host, quint16 port)
@@ -119,12 +159,12 @@ void BonjourAdvertiser::probeHost(const QString &host, quint16 port)
     const QHostAddress addr(host);
     if (addr.isNull())
         return;
-    probeCarPlayCtrl(addr, port);
+    probeCarPlayCtrl(addr, port, false);
 }
 
 void BonjourAdvertiser::probeLanNeighbors()
 {
-    if (!m_running || m_deviceId.isEmpty() || m_ipv4.isNull())
+    if (!m_running || m_deviceId.isEmpty() || m_ipv4.isNull() || m_lanProbeBusy)
         return;
 
     QProcess arp;
@@ -147,6 +187,7 @@ void BonjourAdvertiser::probeLanNeighbors()
 
     const QList<quint16> ports{49152, 49153, 49154, 49155, 7000, 5000, 47000};
     emit log(QStringLiteral("lan probe start hosts=%1").arg(hosts.size()));
+    m_lanProbeBusy = true;
     const QString deviceId = m_deviceId;
     const QString sourceVersion = m_sourceVersion;
     const QHostAddress bind = m_ipv4;
@@ -189,6 +230,7 @@ void BonjourAdvertiser::probeLanNeighbors()
             }
         }
         QMetaObject::invokeMethod(this, [this, hits] {
+            m_lanProbeBusy = false;
             emit log(QStringLiteral("lan probe done hits=%1").arg(hits));
         }, Qt::QueuedConnection);
     });
@@ -199,6 +241,10 @@ void BonjourAdvertiser::probeLanNeighbors()
 void BonjourAdvertiser::stop()
 {
     m_browseTimer.stop();
+    m_preferTimer.stop();
+    m_preferWaiting = false;
+    m_preferPending = 0;
+    m_preferHit = false;
     if (!m_running)
         return;
     const QHostAddress group(QStringLiteral("224.0.0.251"));
@@ -208,6 +254,7 @@ void BonjourAdvertiser::stop()
         m_socket.leaveMulticastGroup(group);
     m_socket.close();
     m_running = false;
+    m_lanProbeBusy = false;
     m_probed.clear();
 }
 
@@ -518,27 +565,38 @@ void BonjourAdvertiser::parseIncoming(const QByteArray &packet, const QHostAddre
     }
 }
 
-void BonjourAdvertiser::probeCarPlayCtrl(const QHostAddress &host, quint16 port)
+void BonjourAdvertiser::probeCarPlayCtrl(const QHostAddress &host, quint16 port, bool preferred)
 {
     const QString key = host.toString() + QLatin1Char(':') + QString::number(port);
-    if (m_probed.contains(key) || m_deviceId.isEmpty())
+    if (m_probed.contains(key) || m_deviceId.isEmpty()) {
+        if (preferred && m_preferWaiting) {
+            --m_preferPending;
+            if (m_preferPending <= 0)
+                finishPreferredProbe(m_preferHit);
+        }
         return;
+    }
     m_probed.insert(key);
 
     const QString deviceId = m_deviceId;
     const QString sourceVersion = m_sourceVersion;
     const QHostAddress bind = m_ipv4;
-    QThread *thread = QThread::create([this, host, port, deviceId, sourceVersion, bind, key] {
+    QThread *thread = QThread::create([this, host, port, deviceId, sourceVersion, bind, key, preferred] {
         QTcpSocket sock;
         sock.bind(bind, 0);
         sock.connectToHost(host, port);
-        if (!sock.waitForConnected(3000)) {
-            QMetaObject::invokeMethod(this, [this, key, host, port, err = sock.errorString()] {
+        if (!sock.waitForConnected(preferred ? 800 : 3000)) {
+            QMetaObject::invokeMethod(this, [this, key, host, port, preferred, err = sock.errorString()] {
                 m_probed.remove(key);
                 emit log(QStringLiteral("carplay-ctrl probe fail %1:%2 %3")
                              .arg(host.toString())
                              .arg(port)
                              .arg(err));
+                if (preferred && m_preferWaiting) {
+                    --m_preferPending;
+                    if (m_preferPending <= 0)
+                        finishPreferredProbe(m_preferHit);
+                }
             }, Qt::QueuedConnection);
             return;
         }
@@ -556,15 +614,31 @@ void BonjourAdvertiser::probeCarPlayCtrl(const QHostAddress &host, quint16 port)
                 .toLatin1();
         sock.write(req);
         sock.flush();
-        sock.waitForReadyRead(3000);
+        sock.waitForReadyRead(preferred ? 800 : 3000);
         const QByteArray resp = sock.readLine().trimmed();
         sock.close();
-        QMetaObject::invokeMethod(this, [this, host, port, resp] {
+        const bool ok = resp.startsWith("HTTP/");
+        QMetaObject::invokeMethod(this, [this, host, port, resp, preferred, ok] {
             emit log(QStringLiteral("carplay-ctrl probe %1:%2 %3")
                          .arg(host.toString())
                          .arg(port)
                          .arg(QString::fromLatin1(resp)));
-            emit ctrlProbed(host.toString(), port, QString::fromLatin1(resp));
+            if (ok) {
+                emit ctrlProbed(host.toString(), port, QString::fromLatin1(resp));
+                if (m_preferWaiting) {
+                    m_preferHit = true;
+                    m_preferredHost = host.toString();
+                    if (preferred)
+                        --m_preferPending;
+                    finishPreferredProbe(true);
+                    return;
+                }
+            }
+            if (preferred && m_preferWaiting) {
+                --m_preferPending;
+                if (m_preferPending <= 0)
+                    finishPreferredProbe(m_preferHit);
+            }
         }, Qt::QueuedConnection);
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);

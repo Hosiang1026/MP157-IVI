@@ -7,6 +7,9 @@ qt_add_executable(ivi-shell
     main.cpp
     VideoScreen.cpp
     CarPlayVideoItem.cpp
+    AirPlayVideoItem.cpp
+    DlnaVideoItem.cpp
+    CameraVideoItem.cpp
 )
 
 qt_add_qml_module(ivi-shell
@@ -20,6 +23,7 @@ qt_add_qml_module(ivi-shell
         qml/AppGlyph.qml
         qml/AppStage.qml
         qml/WeatherFx.qml
+        qml/GlassPanel.qml
     RESOURCES
         weather.frag.qsb
 )
@@ -34,9 +38,12 @@ add_custom_command(TARGET ivi-shell POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:ivi-shell>/wallpapers/builtin"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/assets/wallpapers" "$<TARGET_FILE_DIR:ivi-shell>/wallpapers/builtin"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/assets/media" "$<TARGET_FILE_DIR:ivi-shell>/media"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:ivi-shell>/maps"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/assets/maps" "$<TARGET_FILE_DIR:ivi-shell>/maps"
     COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:ivi-shell>/offline-mfi"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/assets/carplay/offline-mfi" "$<TARGET_FILE_DIR:ivi-shell>/offline-mfi"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/assets/carplay/skoda-oem-icon.png" "$<TARGET_FILE_DIR:ivi-shell>/skoda-oem-icon.png"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/version.json" "$<TARGET_FILE_DIR:ivi-shell>/version.json"
 )
 
 if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/ffmpeg/win64")
@@ -59,6 +66,7 @@ endif()
 install(TARGETS ivi-shell RUNTIME DESTINATION bin)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/apps DESTINATION share/mp157-ivi)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/feed DESTINATION share/mp157-ivi)
+install(FILES ${CMAKE_SOURCE_DIR}/version.json DESTINATION share/mp157-ivi)
 if(EXISTS "${CMAKE_SOURCE_DIR}/assets/carplay/offline-mfi")
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/carplay/offline-mfi
             DESTINATION share/mp157-ivi)

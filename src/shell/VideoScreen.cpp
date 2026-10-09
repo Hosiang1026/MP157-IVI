@@ -3,7 +3,9 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QPainter>
+#include <QVariantMap>
 #include <QtEndian>
 
 VideoScreen::VideoScreen(QQuickItem *parent)
@@ -24,15 +26,8 @@ void VideoScreen::setClipName(const QString &name)
     if (m_clip == name && !m_frames.isEmpty())
         return;
     m_clip = name;
-    const QString path = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("media/video/") + name + QStringLiteral(".avi"));
-    load(path);
-    m_frame = 0;
-    m_position = 0;
-    m_timer.setInterval(qMax(1, 1000 / qMax(1, m_fps)));
+    reload();
     emit clipNameChanged();
-    emit durationChanged();
-    emit positionChanged();
-    update();
 }
 
 bool VideoScreen::playing() const
@@ -52,6 +47,33 @@ void VideoScreen::setPlaying(bool value)
     else
         m_timer.stop();
     emit playingChanged();
+    update();
+}
+
+bool VideoScreen::preview() const
+{
+    return m_preview;
+}
+
+void VideoScreen::setPreview(bool value)
+{
+    if (m_preview == value)
+        return;
+    m_preview = value;
+    emit previewChanged();
+    if (!m_clip.isEmpty())
+        reload();
+}
+
+void VideoScreen::reload()
+{
+    const QString path = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("media/video/") + m_clip + QStringLiteral(".avi"));
+    load(path);
+    m_frame = 0;
+    m_position = 0;
+    m_timer.setInterval(qMax(1, 1000 / qMax(1, m_fps)));
+    emit durationChanged();
+    emit positionChanged();
     update();
 }
 
@@ -78,6 +100,19 @@ void VideoScreen::seek(int seconds)
         emit positionChanged();
     }
     update();
+}
+
+QVariantList VideoScreen::listClips() const
+{
+    QVariantList list;
+    const QDir dir(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("media/video")));
+    const QFileInfoList files = dir.entryInfoList({QStringLiteral("*.avi"), QStringLiteral("*.AVI")}, QDir::Files, QDir::Name);
+    for (const QFileInfo &info : files) {
+        QVariantMap map;
+        map.insert(QStringLiteral("title"), info.completeBaseName());
+        list.push_back(map);
+    }
+    return list;
 }
 
 void VideoScreen::paint(QPainter *painter)
@@ -138,6 +173,8 @@ void VideoScreen::load(const QString &path)
                     dst[x] = qRgb(row[x * 3 + 2], row[x * 3 + 1], row[x * 3]);
             }
             m_frames.push_back(image);
+            if (m_preview && m_frames.size() >= 1)
+                break;
         }
         i += 8 + int(size) + int(size & 1);
     }
@@ -148,7 +185,17 @@ void VideoScreen::tick()
     if (!m_playing || m_frames.isEmpty())
         return;
     if (m_frame + 1 >= m_frames.size()) {
+        if (m_preview) {
+            m_frame = 0;
+            if (m_position != 0) {
+                m_position = 0;
+                emit positionChanged();
+            }
+            update();
+            return;
+        }
         setPlaying(false);
+        emit ended();
         return;
     }
     ++m_frame;

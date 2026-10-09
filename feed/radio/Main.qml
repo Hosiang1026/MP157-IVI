@@ -34,6 +34,7 @@ Item {
         if (MediaSession.playing)
             MediaSession.pause()
         AudioFocus.request("radio", AudioFocus.mediaPriority)
+        saveState()
     }
 
     function powerOff() {
@@ -41,6 +42,7 @@ Item {
             return
         on = false
         AudioFocus.release("radio")
+        saveState()
     }
 
     function tune(dir) {
@@ -59,12 +61,14 @@ Item {
             if (freq < 531)
                 freq = 1602
         }
+        saveState()
     }
 
     function usePreset(item) {
         powerOn()
         freq = item.freq
         station = item.name
+        saveState()
     }
 
     function scan() {
@@ -79,7 +83,61 @@ Item {
         usePreset(list[next])
     }
 
-    Component.onDestruction: AudioFocus.release("radio")
+    function saveCurrentPreset() {
+        const list = band === "FM" ? fmPresets.slice() : amPresets.slice()
+        let found = false
+        for (let i = 0; i < list.length; ++i) {
+            if (Math.abs(list[i].freq - freq) < 0.05) {
+                list[i] = { freq: freq, name: station.length ? station : "自定义" }
+                found = true
+                break
+            }
+        }
+        if (!found) {
+            if (list.length >= 8)
+                list.pop()
+            list.unshift({ freq: freq, name: station.length ? station : "自定义" })
+        }
+        if (band === "FM")
+            fmPresets = list
+        else
+            amPresets = list
+        saveState()
+    }
+
+    function saveState() {
+        SystemState.setPref("radio/band", band)
+        SystemState.setPref("radio/freq", freq)
+        SystemState.setPref("radio/station", station)
+        SystemState.setPref("radio/fmJson", JSON.stringify(fmPresets))
+        SystemState.setPref("radio/amJson", JSON.stringify(amPresets))
+    }
+
+    function loadState() {
+        band = SystemState.pref("radio/band", "FM")
+        freq = Number(SystemState.pref("radio/freq", 91.4))
+        station = SystemState.pref("radio/station", "音乐之声")
+        try {
+            const fmJson = SystemState.pref("radio/fmJson", "")
+            if (fmJson.length) {
+                const fm = JSON.parse(fmJson)
+                if (fm && fm.length)
+                    fmPresets = fm
+            }
+            const amJson = SystemState.pref("radio/amJson", "")
+            if (amJson.length) {
+                const am = JSON.parse(amJson)
+                if (am && am.length)
+                    amPresets = am
+            }
+        } catch (e) {}
+    }
+
+    Component.onCompleted: loadState()
+    Component.onDestruction: {
+        AudioFocus.release("radio")
+        saveState()
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -93,7 +151,7 @@ Item {
         spacing: 16
 
         Rectangle {
-            width: 460
+            width: Math.min(460, parent.width * 0.48)
             height: parent.height
             radius: 12
             color: SystemState.card
@@ -156,7 +214,7 @@ Item {
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: root.on ? "正在播放" : "已关闭"
+                    text: root.on ? "正在播放（模拟）" : "已关闭"
                     color: root.on ? "#007AFF" : "#8E8E93"
                     font.pixelSize: 14
                 }
@@ -217,7 +275,7 @@ Item {
         }
 
         Rectangle {
-            width: parent.width - 476
+            width: parent.width - Math.min(460, parent.width * 0.48) - 16
             height: parent.height
             radius: 12
             color: SystemState.card
@@ -225,8 +283,28 @@ Item {
                 anchors.fill: parent
                 anchors.margins: 16
                 spacing: 8
-                Text { text: "预设"; color: SystemState.ink; font.pixelSize: 20; font.bold: true }
+                Row {
+                    width: parent.width
+                    Text {
+                        text: "预设"
+                        color: SystemState.ink
+                        font.pixelSize: 20
+                        font.bold: true
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Item { width: Math.max(8, parent.width - 160); height: 1 }
+                    Rectangle {
+                        width: 88
+                        height: 30
+                        radius: 8
+                        color: "#007AFF"
+                        Text { anchors.centerIn: parent; text: "存为预设"; color: "#FFF"; font.pixelSize: 13 }
+                        MouseArea { anchors.fill: parent; onClicked: root.saveCurrentPreset() }
+                    }
+                }
                 Grid {
+                    id: presetGrid
+                    width: parent.width
                     columns: 2
                     rowSpacing: 8
                     columnSpacing: 8
@@ -234,10 +312,10 @@ Item {
                         model: root.presets()
                         delegate: Rectangle {
                             required property var modelData
-                            width: 230
+                            width: (presetGrid.width - 8) / 2
                             height: 58
                             radius: 10
-                            color: Math.abs(modelData.freq - root.freq) < 0.05 ? "#E5F1FF" : "#F2F2F7"
+                            color: Math.abs(modelData.freq - root.freq) < 0.05 ? SystemState.highlight : SystemState.fill
                             Column {
                                 anchors.left: parent.left
                                 anchors.leftMargin: 12

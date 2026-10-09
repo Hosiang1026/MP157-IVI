@@ -1,8 +1,9 @@
 {
   "name": "地图",
   "entry": "Main.qml",
-  "color": "#34C759",
-  "dock": false,
+  "color": "#00C7BE",
+  "dock": true,
+  "dockOrder": 1,
   "builtin": true,
   "order": 6
 }

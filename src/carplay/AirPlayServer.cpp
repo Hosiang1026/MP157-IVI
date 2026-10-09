@@ -687,7 +687,7 @@ void AirPlayServer::stop()
     m_identity = nullptr;
     m_mfi = nullptr;
     m_pairings.reset();
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     delete static_cast<AirPlayH264Decoder *>(m_mfDecoder);
     m_mfDecoder = nullptr;
 #endif
@@ -1975,7 +1975,7 @@ void AirPlayServer::onEventDisconnected()
 
 void AirPlayServer::onScreenConfig(const QByteArray &avcC)
 {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     auto *decoder = static_cast<AirPlayH264Decoder *>(m_mfDecoder);
     if (!decoder) {
         decoder = new AirPlayH264Decoder;
@@ -2029,7 +2029,7 @@ static bool annexBIsIdr(const QByteArray &annexB)
 
 void AirPlayServer::drainDecodeQueue()
 {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     if (m_decodeBusy.exchange(true))
         return;
     (void)QtConcurrent::run([this]() {
@@ -2069,7 +2069,7 @@ void AirPlayServer::drainDecodeQueue()
 
 void AirPlayServer::onScreenFrame(const QByteArray &annexB)
 {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     if (!m_mfDecoder || annexB.isEmpty())
         return;
     {

@@ -3,34 +3,31 @@ import Ivi.Services 1.0
 
 Item {
     id: root
-    property string selectedId: "radio"
-    property string selectedName: "电台"
+    property string selectedId: ""
+    property string selectedName: ""
     property string selectedColor: "#FF9F0A"
+    property string selectedBlurb: ""
+    property string selectedVersion: "1.0"
+    property int selectedSizeKb: 0
     property bool selectedInstalled: false
     property bool selectedBuiltin: false
 
-    function blurb(id) {
-        if (id === "radio")
-            return "收听 FM / AM，支持预设电台和搜台"
-        if (id === "music")
-            return "播放列表、进度和蓝牙音频"
-        if (id === "phone")
-            return "拨号、联系人与最近通话"
-        if (id === "vehicle")
-            return "车速、档位、油量和胎压"
-        if (id === "settings")
-            return "亮度、音量、蓝牙和无线局域网"
-        if (id === "store")
-            return "获取和移除车机应用"
-        return "车机应用"
+    function metaLine() {
+        const ver = selectedVersion.length ? selectedVersion : "1.0"
+        if (selectedSizeKb > 0)
+            return "版本 " + ver + " · " + selectedSizeKb + " KB"
+        return "版本 " + ver
     }
 
-    function select(id, name, color, installed, builtin) {
+    function select(id, name, color, installed, builtin, blurb, version, sizeKb) {
         selectedId = id
         selectedName = name
         selectedColor = color
         selectedInstalled = installed
         selectedBuiltin = builtin
+        selectedBlurb = blurb || "车机应用"
+        selectedVersion = version || "1.0"
+        selectedSizeKb = sizeKb || 0
     }
 
     Rectangle {
@@ -73,16 +70,16 @@ Item {
                 Text {
                     width: parent.width
                     wrapMode: Text.WordWrap
-                    text: root.blurb(root.selectedId)
+                    text: root.selectedBlurb
                     color: SystemState.secondary
                     font.pixelSize: 14
                 }
-                Text { text: "版本 1.0 · 12 MB"; color: SystemState.secondary; font.pixelSize: 12 }
+                Text { text: root.metaLine(); color: SystemState.secondary; font.pixelSize: 12 }
                 Rectangle {
                     width: 72
                     height: 28
                     radius: 14
-                    visible: !root.selectedBuiltin
+                    visible: root.selectedId.length > 0 && !root.selectedBuiltin
                     color: root.selectedInstalled ? "#E5E5EA" : "#007AFF"
                     Text {
                         anchors.centerIn: parent
@@ -132,7 +129,11 @@ Item {
                         required property string appId
                         required property string name
                         required property string color
+                        required property string blurb
+                        required property string version
+                        required property int sizeKb
                         required property int index
+                        readonly property color iconColor: color
                         width: availableList.width
                         height: 64
                         color: "transparent"
@@ -142,7 +143,7 @@ Item {
                             radius: 10
                             anchors.left: parent.left
                             anchors.verticalCenter: parent.verticalCenter
-                            color: color
+                            color: parent.iconColor
                             Text {
                                 anchors.centerIn: parent
                                 text: name.charAt(0)
@@ -154,8 +155,15 @@ Item {
                             anchors.left: parent.left
                             anchors.leftMargin: 56
                             anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width - 130
                             Text { text: name; color: SystemState.ink; font.pixelSize: 16 }
-                            Text { text: root.blurb(appId); color: SystemState.secondary; font.pixelSize: 12 }
+                            Text {
+                                width: parent.width
+                                elide: Text.ElideRight
+                                text: blurb.length ? blurb : "车机应用"
+                                color: SystemState.secondary
+                                font.pixelSize: 12
+                            }
                         }
                         Rectangle {
                             anchors.right: parent.right
@@ -165,9 +173,20 @@ Item {
                             radius: 13
                             color: SystemState.highlight
                             Text { anchors.centerIn: parent; text: "获取"; color: "#007AFF"; font.pixelSize: 13; font.bold: true }
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: {
+                                    if (AppCatalog.install(appId))
+                                        root.select(appId, name, parent.iconColor, true, false, blurb, version, sizeKb)
+                                }
+                            }
                         }
-                        MouseArea { anchors.fill: parent; onClicked: root.select(appId, name, color, false, false) }
-                        Component.onCompleted: if (index === 0) root.select(appId, name, color, false, false)
+                        MouseArea {
+                            anchors.fill: parent
+                            anchors.rightMargin: 66
+                            onClicked: root.select(appId, name, parent.iconColor, false, false, blurb, version, sizeKb)
+                        }
+                        Component.onCompleted: if (index === 0) root.select(appId, name, iconColor, false, false, blurb, version, sizeKb)
                     }
                 }
                 Text {
@@ -187,10 +206,14 @@ Item {
                         required property string appId
                         required property string name
                         required property string color
+                        required property string blurb
+                        required property string version
+                        required property int sizeKb
                         required property bool builtin
+                        readonly property color iconColor: color
                         width: installedList.width
                         height: 52
-                        color: root.selectedId === appId ? "#E5F1FF" : "transparent"
+                        color: root.selectedId === appId ? SystemState.highlight : "transparent"
                         radius: 8
                         Rectangle {
                             width: 36
@@ -199,7 +222,7 @@ Item {
                             anchors.left: parent.left
                             anchors.leftMargin: 4
                             anchors.verticalCenter: parent.verticalCenter
-                            color: color
+                            color: parent.iconColor
                         }
                         Text {
                             anchors.left: parent.left
@@ -217,7 +240,10 @@ Item {
                             color: SystemState.secondary
                             font.pixelSize: 13
                         }
-                        MouseArea { anchors.fill: parent; onClicked: root.select(appId, name, color, true, builtin) }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: root.select(appId, name, parent.iconColor, true, builtin, blurb, version, sizeKb)
+                        }
                     }
                 }
             }

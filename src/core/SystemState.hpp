@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
+#include <QVariant>
 
 class SystemState : public QObject {
     Q_OBJECT
@@ -25,6 +26,8 @@ class SystemState : public QObject {
     Q_PROPERTY(QString secondary READ secondary NOTIFY darkChanged)
     Q_PROPERTY(QString fill READ fill NOTIFY darkChanged)
     Q_PROPERTY(QString highlight READ highlight NOTIFY darkChanged)
+    Q_PROPERTY(bool developerMode READ developerMode WRITE setDeveloperMode NOTIFY developerModeChanged)
+    Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
 public:
     explicit SystemState(QObject *parent = nullptr);
 
@@ -51,6 +54,13 @@ public:
     QString secondary() const;
     QString fill() const;
     QString highlight() const;
+    bool developerMode() const;
+    void setDeveloperMode(bool value);
+    QString appVersion() const;
+
+    Q_INVOKABLE void unlockDeveloper();
+    Q_INVOKABLE QVariant pref(const QString &key, const QVariant &fallback = QVariant()) const;
+    Q_INVOKABLE void setPref(const QString &key, const QVariant &value);
 
 signals:
     void brightnessChanged();
@@ -64,6 +74,7 @@ signals:
     void autoThemeChanged();
     void manualDarkChanged();
     void darkChanged();
+    void developerModeChanged();
 
 private slots:
     void applyLinkResults(int battery, const QString &name, int signal);
@@ -85,6 +96,8 @@ private:
     bool m_autoTheme = true;
     bool m_manualDark = false;
     bool m_dark = false;
+    bool m_developerMode = false;
+    int m_devTaps = 0;
     QTimer m_timer;
     QTimer m_linkTimer;
     std::atomic<bool> m_linkBusy{false};

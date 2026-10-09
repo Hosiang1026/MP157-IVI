@@ -2,8 +2,7 @@
   "name": "车辆",
   "entry": "Main.qml",
   "color": "#0A84FF",
-  "dock": true,
-  "dockOrder": 2,
+  "dock": false,
   "builtin": true,
   "order": 2
 }

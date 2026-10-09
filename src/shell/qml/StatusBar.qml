@@ -27,25 +27,60 @@ Item {
     }
     readonly property bool musicLive: MediaSession.playing && musicAppOpen
     readonly property string mode: navLive ? "nav" : (musicLive ? "music" : "")
+    function lyricLines() {
+        const src = MediaSession.lyrics
+        const out = []
+        if (!src || src.length === undefined)
+            return out
+        for (let i = 0; i < src.length; ++i) {
+            const v = src[i]
+            if (v === undefined || v === null)
+                continue
+            const s = ("" + v).trim()
+            if (s.length && s !== "undefined")
+                out.push(s)
+        }
+        return out
+    }
+
+    readonly property string hubMusicText: {
+        const lines = lyricLines()
+        if (lines.length > 0) {
+            const n = lines.length
+            const dur = Math.max(1, MediaSession.duration)
+            const idx = Math.min(n - 1, Math.max(0, Math.floor(MediaSession.position * n / dur)))
+            if (lines[idx] && lines[idx].length)
+                return lines[idx]
+        }
+        const title = (MediaSession.title || "").toString()
+        if (!title.length)
+            return "未在播放"
+        const artist = (MediaSession.artist || "").toString()
+        return artist.length ? (title + " · " + artist) : title
+    }
+    readonly property real lyricProgress: {
+        const n = lyricLines().length
+        const dur = Math.max(1, MediaSession.duration)
+        const pos = Math.max(0, MediaSession.position)
+        if (n > 1) {
+            const span = dur / n
+            const t = pos - Math.min(n - 1, Math.floor(pos / span)) * span
+            return Math.max(0, Math.min(1, t / span))
+        }
+        return Math.max(0, Math.min(1, pos / dur))
+    }
+
+    function openById(id) {
+        const info = AppCatalog.appInfo(id)
+        if (info.entry)
+            root.openApp(info.entry)
+    }
 
     onRunningAllChanged: {
         if (runningAll.length === 0)
             drawerOpen = false
     }
-    readonly property string lyricLine: {
-        const table = {
-            "夜路": ["这条夜路没有灯", "只有车灯往前", "远光切开浓雾"],
-            "城市灯火": ["城市灯火一盏盏", "都落在车窗上", "红灯把影子拉长"],
-            "回程": ["回程的路变短了", "歌还在单曲循环", "电台只剩沙沙声"],
-            "晴空": ["晴空把影子拉长", "风从侧窗进来", "云缝漏下一束光"],
-            "江岸": ["江岸的风很轻", "把后视镜吹凉", "水纹推着旧时光"]
-        }
-        const lines = table[MediaSession.title] || [MediaSession.title || "未在播放"]
-        if (lines.length === 0)
-            return ""
-        const pos = root.musicLive ? MediaSession.position : 0
-        return lines[Math.floor(pos / 3) % lines.length]
-    }
+
     Rectangle {
         anchors.fill: parent
         visible: root.darkContent
@@ -70,50 +105,49 @@ Item {
             id: clock
             text: SystemState.time
             color: root.ink
-            font.family: "Segoe UI"
             font.pixelSize: root.fontMain
-            font.bold: true
+            font.weight: Font.DemiBold
             style: root.darkContent ? Text.Normal : Text.Raised
-            styleColor: "#66000000"
+            styleColor: "#4D000000"
         }
 
         Text {
             id: city
-            visible: Weather.place.length > 0
+            visible: root.mode === "" && Weather.place.length > 0
             text: Weather.place
             color: root.ink
             font.pixelSize: root.fontMain
-            font.bold: true
+            font.weight: Font.Medium
             style: root.darkContent ? Text.Normal : Text.Raised
-            styleColor: "#66000000"
+            styleColor: "#4D000000"
         }
 
         Text {
             id: sky
-            visible: Weather.condition.length > 0
+            visible: root.mode === "" && Weather.condition.length > 0
             text: Weather.condition
             color: root.ink
             font.pixelSize: root.fontMain
-            font.bold: true
+            font.weight: Font.Medium
             style: root.darkContent ? Text.Normal : Text.Raised
-            styleColor: "#66000000"
+            styleColor: "#4D000000"
         }
 
         Text {
             id: temp
-            visible: Weather.condition.length > 0
+            visible: root.mode === "" && Weather.condition.length > 0
             text: Weather.temperature + "°"
             color: root.ink
             font.pixelSize: root.fontMain
-            font.bold: true
+            font.weight: Font.Medium
             style: root.darkContent ? Text.Normal : Text.Raised
-            styleColor: "#66000000"
+            styleColor: "#4D000000"
         }
 
         Text {
             id: travelAlert
-            visible: Weather.travelAlert.length > 0 && root.mode === ""
-            width: visible ? 240 : 0
+            visible: Weather.travelAlert.length > 0
+            width: visible ? (root.mode === "" ? 240 : 160) : 0
             text: Weather.travelAlert
             elide: Text.ElideRight
             color: root.darkContent ? "#B71C1C" : "#FFEBEE"
@@ -121,6 +155,10 @@ Item {
             font.bold: true
             style: root.darkContent ? Text.Normal : Text.Raised
             styleColor: "#66000000"
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.openById("weather")
+            }
         }
 
         Rectangle {
@@ -136,47 +174,55 @@ Item {
                 color: "#FFFFFF"
                 font.pixelSize: 13
             }
-        }
-    }
-
-    }
-
-    MouseArea {
-        anchors.fill: parent
-        visible: root.runningAll.length > 0
-        z: 40
-        propagateComposedEvents: true
-        property real pressY: 0
-        property real pressX: 0
-        property bool dragging: false
-        onPressed: function (m) {
-            pressY = m.y
-            pressX = m.x
-            dragging = false
-            mouse.accepted = false
-        }
-        onPositionChanged: function (m) {
-            if (!pressed)
-                return
-            const dy = m.y - pressY
-            const dx = m.x - pressX
-            if (!dragging && Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx) * 1.15)
-                dragging = true
-            if (dragging)
-                mouse.accepted = true
-        }
-        onReleased: function (m) {
-            if (dragging) {
-                const dy = m.y - pressY
-                if (dy > 8)
-                    root.drawerOpen = true
-                else if (dy < -8)
-                    root.drawerOpen = false
-                mouse.accepted = true
-            } else {
-                mouse.accepted = false
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.openById("phone")
             }
-            dragging = false
+        }
+    }
+
+    }
+
+    Item {
+        id: pullZone
+        z: 40
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: root.barH + (root.drawerOpen ? 0 : 28)
+        enabled: root.runningAll.length > 0
+        visible: enabled
+
+        DragHandler {
+            id: barPull
+            target: null
+            xAxis.enabled: false
+            yAxis.enabled: true
+            dragThreshold: 10
+            property bool moved: false
+            property real lastDy: 0
+            property real lastVy: 0
+
+            onActiveChanged: {
+                if (active) {
+                    moved = false
+                    lastDy = 0
+                    lastVy = 0
+                } else if (moved) {
+                    if (lastDy > 18 || lastVy > 420)
+                        root.drawerOpen = true
+                    else if (lastDy < -18 || lastVy < -420)
+                        root.drawerOpen = false
+                }
+            }
+            onTranslationChanged: {
+                if (!active)
+                    return
+                lastDy = translation.y
+                lastVy = centroid.velocity.y
+                if (Math.abs(lastDy) > 8 && Math.abs(lastDy) > Math.abs(translation.x) * 1.1)
+                    moved = true
+            }
         }
     }
 
@@ -197,26 +243,72 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.verticalCenter: parent.verticalCenter
             height: 24
-            width: lyricText.width
+            width: lyricPaint.width
+            property bool snapWipe: false
+            property real wipe: 0
+            onWipeChanged: lyricPaint.requestPaint()
+            Behavior on wipe {
+                enabled: !musicRow.snapWipe
+                NumberAnimation { duration: 420; easing.type: Easing.Linear }
+            }
+            onVisibleChanged: {
+                snapWipe = true
+                wipe = root.lyricProgress
+                snapWipe = false
+            }
+            Canvas {
+                id: lyricPaint
+                height: 24
+                readonly property real maxW: Math.max(40, root.width - leftRow.width - statusRight.width - 24)
+                width: Math.min(lyricMetrics.contentWidth > 0 ? lyricMetrics.contentWidth : lyricMetrics.implicitWidth, maxW)
+                onPaint: {
+                    const ctx = getContext("2d")
+                    ctx.reset()
+                    ctx.clearRect(0, 0, width, height)
+                    const text = lyricMetrics.elidedText || lyricMetrics.text || ""
+                    if (!text.length || text === "undefined")
+                        return
+                    ctx.font = "600 " + root.fontHub + "px sans-serif"
+                    ctx.textAlign = "left"
+                    ctx.textBaseline = "middle"
+                    const y = height * 0.5
+                    const played = root.darkContent ? "#FF2D55" : "#FF375F"
+                    const rest = root.darkContent ? "#3A3A3C" : "#99FFFFFF"
+                    const p = Math.max(0, Math.min(1, musicRow.wipe))
+                    const g = ctx.createLinearGradient(0, 0, width, 0)
+                    const edge = 0.06
+                    g.addColorStop(0, played)
+                    g.addColorStop(Math.max(0, p - edge), played)
+                    g.addColorStop(Math.min(1, p + edge), rest)
+                    g.addColorStop(1, rest)
+                    ctx.fillStyle = g
+                    ctx.fillText(text, 0, y)
+                }
+                onWidthChanged: requestPaint()
+            }
             Text {
-                id: lyricText
-                width: Math.min(implicitWidth, root.width - leftRow.width - statusRight.width - 24)
-                text: root.lyricLine
-                horizontalAlignment: Text.AlignHCenter
-                elide: Text.ElideRight
-                color: root.ink
+                id: lyricMetrics
+                visible: false
+                text: root.hubMusicText
                 font.pixelSize: root.fontHub
-                font.bold: true
-                style: root.darkContent ? Text.Normal : Text.Raised
-                styleColor: "#66000000"
+                font.weight: Font.DemiBold
+                width: lyricPaint.maxW
+                elide: Text.ElideRight
+            }
+            Connections {
+                target: root
+                function onHubMusicTextChanged() {
+                    musicRow.snapWipe = true
+                    musicRow.wipe = 0
+                    musicRow.snapWipe = false
+                    lyricPaint.requestPaint()
+                }
+                function onDarkContentChanged() { lyricPaint.requestPaint() }
+                function onLyricProgressChanged() { musicRow.wipe = root.lyricProgress }
             }
             MouseArea {
                 anchors.fill: parent
-                onClicked: {
-                    const info = AppCatalog.appInfo("music")
-                    if (info.entry)
-                        root.openApp(info.entry)
-                }
+                onClicked: root.openById("music")
             }
         }
 
@@ -300,18 +392,14 @@ Item {
                         elide: Text.ElideRight
                         color: root.ink
                         font.pixelSize: root.fontHub
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         style: root.darkContent ? Text.Normal : Text.Raised
-                        styleColor: "#66000000"
+                        styleColor: "#4D000000"
                     }
                 }
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: {
-                        const info = AppCatalog.appInfo("map")
-                        if (info.entry)
-                            root.openApp(info.entry)
-                    }
+                    onClicked: root.openById("map")
                 }
             }
         }
@@ -334,17 +422,17 @@ Item {
                 text: VehicleState.speed + " km/h "
                 color: VehicleState.speed > NavSession.speedLimit ? "#FF3B30" : root.ink
                 font.pixelSize: root.fontMain
-                font.bold: true
+                font.weight: Font.DemiBold
                 style: root.darkContent ? Text.Normal : Text.Raised
-                styleColor: "#66000000"
+                styleColor: "#4D000000"
             }
             Text {
                 text: "限速" + NavSession.speedLimit
                 color: root.ink
                 font.pixelSize: root.fontMain
-                font.bold: true
+                font.weight: Font.DemiBold
                 style: root.darkContent ? Text.Normal : Text.Raised
-                styleColor: "#66000000"
+                styleColor: "#4D000000"
             }
         }
 
@@ -438,6 +526,11 @@ Item {
                 target: SystemState
                 function onDarkChanged() { wifi.requestPaint() }
             }
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -6
+                onClicked: root.openById("settings")
+            }
         }
 
         Canvas {
@@ -492,6 +585,11 @@ Item {
                 target: SystemState
                 function onDarkChanged() { bt.requestPaint() }
             }
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -6
+                onClicked: root.openById("settings")
+            }
         }
 
         Item {
@@ -523,6 +621,11 @@ Item {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 color: root.ink
+            }
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -4
+                onClicked: root.openById("settings")
             }
         }
     }

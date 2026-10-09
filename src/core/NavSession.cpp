@@ -1,5 +1,7 @@
 #include "NavSession.hpp"
 
+#include <QtGlobal>
+
 namespace {
 
 struct Step {
@@ -34,7 +36,10 @@ QString NavSession::text() const
 {
     if (!m_active)
         return {};
-    return QString::fromUtf8(kSteps[m_index].text);
+    QString line = QString::fromUtf8(kSteps[m_index].text);
+    if (m_index == int(sizeof(kSteps) / sizeof(kSteps[0])) - 1 && !m_destination.isEmpty())
+        line = QStringLiteral("到达「%1」").arg(m_destination);
+    return line;
 }
 
 QString NavSession::turn() const
@@ -51,9 +56,26 @@ int NavSession::speedLimit() const
     return kSteps[m_index].speedLimit;
 }
 
+QString NavSession::destination() const
+{
+    return m_destination;
+}
+
+int NavSession::etaMin() const
+{
+    return m_active ? m_etaMin : 0;
+}
+
 void NavSession::start()
 {
+    startTo(m_destination.isEmpty() ? QStringLiteral("目的地") : m_destination);
+}
+
+void NavSession::startTo(const QString &destination)
+{
+    m_destination = destination.trimmed().isEmpty() ? QStringLiteral("目的地") : destination.trimmed();
     m_index = 0;
+    m_etaMin = 12;
     if (!m_active) {
         m_active = true;
         emit activeChanged();
@@ -75,6 +97,11 @@ void NavSession::stop()
 void NavSession::advance()
 {
     const int count = int(sizeof(kSteps) / sizeof(kSteps[0]));
-    m_index = (m_index + 1) % count;
+    if (m_index + 1 >= count) {
+        stop();
+        return;
+    }
+    ++m_index;
+    m_etaMin = qMax(1, m_etaMin - 2);
     emit stepChanged();
 }

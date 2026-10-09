@@ -27,12 +27,14 @@ public:
     void probeLanNeighbors();
     void probeHost(const QString &host, quint16 port = 49152);
     void setPreferredHost(const QString &host);
+    QString preferredHost() const { return m_preferredHost; }
     bool isRunning() const { return m_running; }
 
 signals:
     void log(const QString &msg);
     void failed(const QString &msg);
     void ctrlProbed(const QString &host, quint16 port, const QString &statusLine);
+    void preferredHostInvalid(const QString &host);
 
 private slots:
     void onReadyRead();
@@ -44,7 +46,8 @@ private:
     void sendDatagram(const QByteArray &pkt);
     QByteArray buildResponse(const QByteArray &query) const;
     void parseIncoming(const QByteArray &packet, const QHostAddress &sender);
-    void probeCarPlayCtrl(const QHostAddress &host, quint16 port);
+    void probeCarPlayCtrl(const QHostAddress &host, quint16 port, bool preferred = false);
+    void finishPreferredProbe(bool hit);
     QByteArray encodeDnsName(const QString &name) const;
     static quint16 readU16(const quint8 *p);
     static void writeU16(QByteArray &out, quint16 v);
@@ -66,4 +69,9 @@ private:
     QString m_sourceVersion;
     QString m_preferredHost;
     QSet<QString> m_probed;
+    bool m_lanProbeBusy = false;
+    bool m_preferWaiting = false;
+    bool m_preferHit = false;
+    int m_preferPending = 0;
+    QTimer m_preferTimer;
 };

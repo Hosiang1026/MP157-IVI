@@ -5,14 +5,21 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QFileInfo>
 
 #include <cstring>
+
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+#define IVI_FFMPEG_DYN 1
+#endif
 
 #ifdef Q_OS_WIN
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#elif defined(Q_OS_LINUX)
+#include <dlfcn.h>
 #endif
 
 namespace {
@@ -21,7 +28,7 @@ constexpr int kTag = 16;
 constexpr int kNonce = 8;
 constexpr qint64 kU32 = 0xffffffffLL;
 
-#ifdef Q_OS_WIN
+#ifdef IVI_FFMPEG_DYN
 constexpr int kAvCodecIdAac = 86018;
 
 struct AVPacket;
@@ -45,9 +52,17 @@ struct AVFrameLite {
     int format;
 };
 
+#ifdef Q_OS_WIN
+using LibHandle = HMODULE;
+static void *sym(LibHandle h, const char *n) { return reinterpret_cast<void *>(GetProcAddress(h, n)); }
+#else
+using LibHandle = void *;
+static void *sym(LibHandle h, const char *n) { return dlsym(h, n); }
+#endif
+
 struct AacDecoder {
-    HMODULE avcodec = nullptr;
-    HMODULE avutil = nullptr;
+    LibHandle avcodec = nullptr;
+    LibHandle avutil = nullptr;
     using Find = const AVCodec *(*)(int);
     using Alloc = AVCodecContext *(*)(const AVCodec *);
     using Open = int (*)(AVCodecContext *, const AVCodec *, void *);
@@ -78,36 +93,59 @@ struct AacDecoder {
     AVPacket *pkt = nullptr;
     AVFrame *frame = nullptr;
 
-    HMODULE load(const wchar_t *name)
+#ifdef Q_OS_WIN
+    LibHandle load(const wchar_t *name)
     {
         const QString path = QDir(QCoreApplication::applicationDirPath()).filePath(QString::fromWCharArray(name));
-        if (const HMODULE mod = LoadLibraryW(reinterpret_cast<LPCWSTR>(path.utf16())))
+        if (const LibHandle mod = LoadLibraryW(reinterpret_cast<LPCWSTR>(path.utf16())))
             return mod;
         return LoadLibraryW(name);
     }
+#else
+    LibHandle load(const char *name)
+    {
+        const QString path = QDir(QCoreApplication::applicationDirPath()).filePath(QString::fromUtf8(name));
+        if (QFileInfo::exists(path)) {
+            if (LibHandle mod = dlopen(path.toUtf8().constData(), RTLD_NOW | RTLD_GLOBAL))
+                return mod;
+        }
+        return dlopen(name, RTLD_NOW | RTLD_GLOBAL);
+    }
+#endif
 
     bool init()
     {
         if (ctx)
             return true;
+#ifdef Q_OS_WIN
         SetDllDirectoryW(reinterpret_cast<LPCWSTR>(QCoreApplication::applicationDirPath().utf16()));
         avutil = load(L"avutil-60.dll");
         avcodec = load(L"avcodec-62.dll");
+#else
+        static const char *kUtil[] = {"libavutil.so", "libavutil.so.59", "libavutil.so.58", "libavutil.so.57",
+                                      nullptr};
+        static const char *kCodec[] = {"libavcodec.so", "libavcodec.so.61", "libavcodec.so.60", "libavcodec.so.59",
+                                       "libavcodec.so.58", nullptr};
+        for (int i = 0; kUtil[i] && !avutil; ++i)
+            avutil = load(kUtil[i]);
+        for (int i = 0; kCodec[i] && !avcodec; ++i)
+            avcodec = load(kCodec[i]);
+#endif
         if (!avcodec || !avutil)
             return false;
-        find = reinterpret_cast<Find>(GetProcAddress(avcodec, "avcodec_find_decoder"));
-        alloc = reinterpret_cast<Alloc>(GetProcAddress(avcodec, "avcodec_alloc_context3"));
-        open2 = reinterpret_cast<Open>(GetProcAddress(avcodec, "avcodec_open2"));
-        freeCtx = reinterpret_cast<FreeCtx>(GetProcAddress(avcodec, "avcodec_free_context"));
-        send = reinterpret_cast<Send>(GetProcAddress(avcodec, "avcodec_send_packet"));
-        recv = reinterpret_cast<Recv>(GetProcAddress(avcodec, "avcodec_receive_frame"));
-        pktAlloc = reinterpret_cast<PktAlloc>(GetProcAddress(avcodec, "av_packet_alloc"));
-        pktFree = reinterpret_cast<PktFree>(GetProcAddress(avcodec, "av_packet_free"));
-        pktUnref = reinterpret_cast<PktUnref>(GetProcAddress(avcodec, "av_packet_unref"));
-        newPkt = reinterpret_cast<NewPkt>(GetProcAddress(avcodec, "av_new_packet"));
-        frAlloc = reinterpret_cast<FrAlloc>(GetProcAddress(avutil, "av_frame_alloc"));
-        frFree = reinterpret_cast<FrFree>(GetProcAddress(avutil, "av_frame_free"));
-        frUnref = reinterpret_cast<FrUnref>(GetProcAddress(avutil, "av_frame_unref"));
+        find = reinterpret_cast<Find>(sym(avcodec, "avcodec_find_decoder"));
+        alloc = reinterpret_cast<Alloc>(sym(avcodec, "avcodec_alloc_context3"));
+        open2 = reinterpret_cast<Open>(sym(avcodec, "avcodec_open2"));
+        freeCtx = reinterpret_cast<FreeCtx>(sym(avcodec, "avcodec_free_context"));
+        send = reinterpret_cast<Send>(sym(avcodec, "avcodec_send_packet"));
+        recv = reinterpret_cast<Recv>(sym(avcodec, "avcodec_receive_frame"));
+        pktAlloc = reinterpret_cast<PktAlloc>(sym(avcodec, "av_packet_alloc"));
+        pktFree = reinterpret_cast<PktFree>(sym(avcodec, "av_packet_free"));
+        pktUnref = reinterpret_cast<PktUnref>(sym(avcodec, "av_packet_unref"));
+        newPkt = reinterpret_cast<NewPkt>(sym(avcodec, "av_new_packet"));
+        frAlloc = reinterpret_cast<FrAlloc>(sym(avutil, "av_frame_alloc"));
+        frFree = reinterpret_cast<FrFree>(sym(avutil, "av_frame_free"));
+        frUnref = reinterpret_cast<FrUnref>(sym(avutil, "av_frame_unref"));
         if (!find || !alloc || !open2 || !freeCtx || !send || !recv || !pktAlloc || !pktFree || !pktUnref
             || !newPkt || !frAlloc || !frFree || !frUnref)
             return false;
@@ -209,7 +247,7 @@ bool AirPlayBufferedAudio::start()
     }
     m_port = m_server->serverPort();
     connect(m_server.get(), &QTcpServer::newConnection, this, &AirPlayBufferedAudio::onNewConnection);
-#ifdef Q_OS_WIN
+#ifdef IVI_FFMPEG_DYN
     m_aacDecoder = new AacDecoder;
 #endif
     emit log(QStringLiteral("buffered audio listen tcp=%1 rate=%2").arg(m_port).arg(m_sampleRate));
@@ -229,7 +267,7 @@ void AirPlayBufferedAudio::stop()
         m_server->close();
         m_server.reset();
     }
-#ifdef Q_OS_WIN
+#ifdef IVI_FFMPEG_DYN
     if (m_aacDecoder) {
         static_cast<AacDecoder *>(m_aacDecoder)->close();
         delete static_cast<AacDecoder *>(m_aacDecoder);
@@ -342,7 +380,7 @@ bool AirPlayBufferedAudio::openFrame(const QByteArray &body, QByteArray *aacOut,
 
 QByteArray AirPlayBufferedAudio::decodeAac(const QByteArray &aac)
 {
-#ifdef Q_OS_WIN
+#ifdef IVI_FFMPEG_DYN
     auto *dec = static_cast<AacDecoder *>(m_aacDecoder);
     if (!dec)
         return {};

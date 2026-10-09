@@ -7,6 +7,8 @@
 #include <windows.h>
 #include <mmsystem.h>
 #pragma comment(lib, "winmm.lib")
+#elif defined(IVI_HAVE_ALSA)
+#include <alsa/asoundlib.h>
 #endif
 
 #include <QVector>
@@ -59,6 +61,10 @@ struct AirPlayPcmPlayer::Impl {
             waveOutWrite(wave, hdr, sizeof(WAVEHDR));
         }
     }
+#elif defined(IVI_HAVE_ALSA)
+    snd_pcm_t *pcm = nullptr;
+    QMutex mutex;
+    int channels = 2;
 #endif
 };
 
@@ -107,6 +113,25 @@ bool AirPlayPcmPlayer::start(int sampleRate, int channels)
     }
     m_running = true;
     return true;
+#elif defined(IVI_HAVE_ALSA)
+    if (sampleRate <= 0)
+        sampleRate = 44100;
+    if (channels <= 0)
+        channels = 2;
+    m->channels = channels;
+    if (snd_pcm_open(&m->pcm, "default", SND_PCM_STREAM_PLAYBACK, 0) < 0) {
+        m->pcm = nullptr;
+        return false;
+    }
+    if (snd_pcm_set_params(m->pcm, SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED,
+                           unsigned(channels), unsigned(sampleRate), 1, 100000)
+        < 0) {
+        snd_pcm_close(m->pcm);
+        m->pcm = nullptr;
+        return false;
+    }
+    m_running = true;
+    return true;
 #else
     Q_UNUSED(sampleRate);
     Q_UNUSED(channels);
@@ -131,6 +156,14 @@ void AirPlayPcmPlayer::stop()
     m->buffers.clear();
     m->pending.clear();
     m->next = 0;
+#elif defined(IVI_HAVE_ALSA)
+    m_running = false;
+    QMutexLocker lock(&m->mutex);
+    if (!m->pcm)
+        return;
+    snd_pcm_drop(m->pcm);
+    snd_pcm_close(m->pcm);
+    m->pcm = nullptr;
 #endif
 }
 
@@ -144,6 +177,29 @@ void AirPlayPcmPlayer::writePcm(const QByteArray &pcm)
         m->pending.remove(0, m->pending.size() - 256 * 1024);
     m->pending.append(pcm);
     m->pumpLocked();
+#elif defined(IVI_HAVE_ALSA)
+    if (!m_running || !m->pcm || pcm.isEmpty())
+        return;
+    QMutexLocker lock(&m->mutex);
+    if (!m->pcm)
+        return;
+    const int frameBytes = qMax(1, m->channels) * 2;
+    const snd_pcm_uframes_t frames = snd_pcm_uframes_t(pcm.size() / frameBytes);
+    if (frames == 0)
+        return;
+    const char *p = pcm.constData();
+    snd_pcm_uframes_t left = frames;
+    while (left > 0) {
+        const snd_pcm_sframes_t n = snd_pcm_writei(m->pcm, p, left);
+        if (n == -EPIPE) {
+            snd_pcm_prepare(m->pcm);
+            continue;
+        }
+        if (n < 0)
+            break;
+        p += n * frameBytes;
+        left -= snd_pcm_uframes_t(n);
+    }
 #else
     Q_UNUSED(pcm);
 #endif

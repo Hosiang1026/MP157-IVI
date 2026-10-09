@@ -3,22 +3,35 @@ import Ivi.Services 1.0
 
 Item {
     id: root
+    property Item glassSource
     signal openApp(string entry)
+
+    function refreshGlass() {
+        if (dockBar.visible)
+            dockBar.refresh()
+    }
+
+    onXChanged: refreshGlass()
+    onYChanged: refreshGlass()
+    onWidthChanged: refreshGlass()
+    onHeightChanged: refreshGlass()
+    onVisibleChanged: if (visible) refreshGlass()
 
     readonly property int columns: 5
     readonly property int rows: 3
     readonly property int perPage: columns * rows
-    readonly property int gapX: 28
-    readonly property int gapY: 20
-    readonly property int dockBottomMargin: 14
+    readonly property int gapX: 24
+    readonly property int gapY: 18
+    readonly property int dockBottomMargin: 18
+    readonly property int dockMax: 5
     readonly property int slotW: flick.width > 0
             ? Math.floor((flick.width - (columns - 1) * gapX) / columns) : 100
-    readonly property int carPlayIconPx: 120
-    readonly property int dockGap: 8
+    readonly property int carPlayIconPx: 118
+    readonly property int dockGap: 18
     readonly property int dockCellW: homeIconSize
-    readonly property int dockBarPadV: Math.max(14, Math.round(carPlayIconPx * 0.12))
-    readonly property int dockBarPadH: Math.max(18, Math.round(carPlayIconPx * 0.2))
-    readonly property int gridReserveHome: carPlayIconPx + 10 + dockBarPadV * 2 + dockBottomMargin + 22
+    readonly property int dockBarPadV: Math.max(12, Math.round(carPlayIconPx * 0.1))
+    readonly property int dockBarPadH: Math.max(22, Math.round(carPlayIconPx * 0.22))
+    readonly property int gridReserveHome: carPlayIconPx + 10 + dockBarPadV * 2 + dockBottomMargin + 26
     readonly property int gridReserveApps: dockBottomMargin + 22
     readonly property int gridReserve: root.currentPage === 0 ? gridReserveHome : gridReserveApps
     readonly property int slotH: flick.height > 0
@@ -28,9 +41,9 @@ Item {
     readonly property int gridW: columns * slotW + (columns - 1) * gapX
     readonly property int gridH: rows * slotH + (rows - 1) * gapY
     readonly property int gridTop: Math.max(6, Math.floor((flick.height - gridReserve - gridH) / 2))
-    readonly property int homeIconSize: Math.min(carPlayIconPx, Math.min(Math.round(slotW * 0.76), Math.round(slotHApps * 0.76)))
-    readonly property int homeLabelSize: Math.max(20, Math.round(homeIconSize * 0.18))
-    readonly property int dockBarH: homeIconSize + 10 + dockBarPadV * 2
+    readonly property int homeIconSize: Math.min(carPlayIconPx, Math.min(Math.round(slotW * 0.78), Math.round(slotHApps * 0.78)))
+    readonly property int homeLabelSize: Math.max(18, Math.round(homeIconSize * 0.155))
+    readonly property int dockBarH: homeIconSize + 8 + dockBarPadV * 2
     readonly property int appPages: Math.max(1, Math.ceil(AppCatalog.installed.count / perPage))
     readonly property int pageCount: 1 + appPages
     property int currentPage: 0
@@ -44,6 +57,7 @@ Item {
     property string dragIcon: ""
     property real dragX: 0
     property real dragY: 0
+    property real lastEdgeFlip: 0
 
     function goTo(page) {
         page = Math.max(0, Math.min(root.pageCount - 1, page))
@@ -53,15 +67,33 @@ Item {
         snap.start()
     }
 
+    function dockContains(id) {
+        for (let i = 0; i < dockIcons.count; ++i) {
+            const item = dockIcons.itemAt(i)
+            if (item && item.appId === id)
+                return true
+        }
+        return false
+    }
+
     function updateDrag(sx, sy) {
         const p = mapFromItem(null, sx, sy)
         dragX = p.x
         dragY = p.y
         const d = dockBar.mapFromItem(null, sx, sy)
-        dockHot = root.currentPage === 0
-                && d.x >= -16 && d.y >= -24 && d.x <= dockBar.width + 16 && d.y <= dockBar.height + 24
-        if (p.x < 48 && root.currentPage > 0)
-            goTo(root.currentPage - 1)
+        const hit = d.x >= -16 && d.y >= -24 && d.x <= dockBar.width + 16 && d.y <= dockBar.height + 24
+        const canDock = root.dragFromDock || root.dockContains(root.dragId) || dockIcons.count < root.dockMax
+        dockHot = hit && canDock
+        const now = Date.now()
+        if (now - root.lastEdgeFlip >= 450) {
+            if (p.x < 48 && root.currentPage > 0) {
+                root.lastEdgeFlip = now
+                goTo(root.currentPage - 1)
+            } else if (p.x > root.width - 48 && root.currentPage < root.pageCount - 1) {
+                root.lastEdgeFlip = now
+                goTo(root.currentPage + 1)
+            }
+        }
     }
 
     function beginDrag(id, label, color, icon, fromDock, sx, sy) {
@@ -71,6 +103,7 @@ Item {
         dragLabel = label
         dragColor = color
         dragIcon = icon
+        lastEdgeFlip = 0
         updateDrag(sx, sy)
     }
 
@@ -114,15 +147,16 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.leftMargin: 28
-        anchors.rightMargin: 28
-        anchors.topMargin: 10
-        anchors.bottomMargin: 14
+        anchors.leftMargin: 32
+        anchors.rightMargin: 32
+        anchors.topMargin: 8
+        anchors.bottomMargin: 12
         contentWidth: root.pageCount * width
         contentHeight: height
         flickableDirection: Flickable.HorizontalFlick
         boundsBehavior: Flickable.StopAtBounds
         clip: true
+        interactive: !root.dragging
 
         Repeater {
             id: homeIcons
@@ -171,30 +205,34 @@ Item {
             id: snap
             target: flick
             property: "contentX"
-            duration: 220
-            easing.type: Easing.OutCubic
+            duration: 320
+            easing.type: Easing.OutQuint
         }
     }
 
-    Rectangle {
+    GlassPanel {
         id: dockBar
         z: 2
-        visible: root.currentPage === 0
+        visible: root.currentPage === 0 || root.dragging
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: root.dockBottomMargin
         width: Math.max(120, dockRow.implicitWidth + root.dockBarPadH * 2)
         height: root.dockBarH
-        radius: Math.max(22, Math.round(root.dockBarH * 0.32))
-        color: SystemState.dark ? "#B31C1C1E" : "#73F5F5F7"
-        border.color: root.dockHot ? "#FFFFFF" : (SystemState.dark ? "#33FFFFFF" : "#66FFFFFF")
-        border.width: root.dockHot ? 2 : 1
+        radius: Math.max(16, Math.round(root.dockBarH * 0.18))
+        sourceItem: root.glassSource
+        fill: SystemState.dark ? "#661B2030" : "#73F2F2F7"
+        stroke: root.dockHot ? "#E6FFFFFF" : (SystemState.dark ? "#40A8B4C8" : "#66FFFFFF")
+        strokeWidth: root.dockHot ? 1.5 : 0.8
+        blurAmount: 0.92
+        blurMax: 48
+        opacity: root.currentPage === 0 ? 1 : 0.94
     }
 
     Row {
         id: dockRow
         z: 2
-        visible: root.currentPage === 0
+        visible: dockBar.visible
         anchors.centerIn: dockBar
         spacing: root.dockGap
 
@@ -223,19 +261,32 @@ Item {
     Row {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: root.currentPage === 0
-                ? root.dockBottomMargin + root.dockBarH + 8
-                : root.dockBottomMargin + 8
-        spacing: 7
+        anchors.bottomMargin: (root.currentPage === 0 || root.dragging)
+                ? root.dockBottomMargin + root.dockBarH + 10
+                : root.dockBottomMargin + 10
+        spacing: 8
+        z: 3
 
         Repeater {
             model: root.pageCount
-            delegate: Rectangle {
-                width: root.currentPage === index ? 8 : 6
-                height: 6
-                radius: 3
-                color: "#FFFFFF"
-                opacity: root.currentPage === index ? 1 : 0.45
+            delegate: Item {
+                width: root.currentPage === index ? 18 : 10
+                height: 10
+                Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: root.currentPage === index ? 18 : 7
+                    height: 7
+                    radius: 3.5
+                    color: "#FFFFFF"
+                    opacity: root.currentPage === index ? 1.0 : 0.28
+                    Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 220 } }
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: root.goTo(index)
+                }
             }
         }
     }

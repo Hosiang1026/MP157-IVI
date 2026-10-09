@@ -148,16 +148,122 @@ bool verifyDigest(const QByteArray &p7b, const QByteArray &challenge, const QByt
 
 #else
 
-QByteArray signDigest(const QByteArray &, const QByteArray &, QString *error)
+#include <openssl/bn.h>
+#include <openssl/ec.h>
+#include <openssl/ecdsa.h>
+#include <openssl/evp.h>
+#include <openssl/pkcs7.h>
+#include <openssl/pkcs8.h>
+#include <openssl/x509.h>
+
+QByteArray signDigest(const QByteArray &pk8, const QByteArray &challenge, QString *error)
 {
-    *error = QStringLiteral("当前平台尚未接入 OpenSSL MFi 签名");
-    return {};
+    if (challenge.size() != 32) {
+        *error = QStringLiteral("MFi v3 挑战必须为 32 字节");
+        return {};
+    }
+    const unsigned char *p = reinterpret_cast<const unsigned char *>(pk8.constData());
+    PKCS8_PRIV_KEY_INFO *p8 = d2i_PKCS8_PRIV_KEY_INFO(nullptr, &p, long(pk8.size()));
+    if (!p8) {
+        *error = QStringLiteral("导入 identity.pk8 失败");
+        return {};
+    }
+    EVP_PKEY *pkey = EVP_PKCS82PKEY(p8);
+    PKCS8_PRIV_KEY_INFO_free(p8);
+    if (!pkey) {
+        *error = QStringLiteral("解析私钥失败");
+        return {};
+    }
+    EC_KEY *ec = EVP_PKEY_get1_EC_KEY(pkey);
+    EVP_PKEY_free(pkey);
+    if (!ec) {
+        *error = QStringLiteral("非 EC 私钥");
+        return {};
+    }
+    ECDSA_SIG *sig = ECDSA_do_sign(reinterpret_cast<const unsigned char *>(challenge.constData()), 32, ec);
+    EC_KEY_free(ec);
+    if (!sig) {
+        *error = QStringLiteral("ECDSA 签名失败");
+        return {};
+    }
+    const BIGNUM *r = nullptr;
+    const BIGNUM *s = nullptr;
+    ECDSA_SIG_get0(sig, &r, &s);
+    QByteArray out(64, 0);
+    if (BN_bn2binpad(r, reinterpret_cast<unsigned char *>(out.data()), 32) != 32
+        || BN_bn2binpad(s, reinterpret_cast<unsigned char *>(out.data() + 32), 32) != 32) {
+        ECDSA_SIG_free(sig);
+        *error = QStringLiteral("ECDSA 签名长度异常");
+        return {};
+    }
+    ECDSA_SIG_free(sig);
+    return out;
 }
 
-bool verifyDigest(const QByteArray &, const QByteArray &, const QByteArray &, QString *error)
+bool verifyDigest(const QByteArray &p7b, const QByteArray &challenge, const QByteArray &rawSig, QString *error)
 {
-    *error = QStringLiteral("当前平台尚未接入 OpenSSL MFi 验签");
-    return false;
+    if (challenge.size() != 32 || rawSig.size() != 64) {
+        *error = QStringLiteral("验签参数无效");
+        return false;
+    }
+    const unsigned char *p = reinterpret_cast<const unsigned char *>(p7b.constData());
+    PKCS7 *p7 = d2i_PKCS7(nullptr, &p, long(p7b.size()));
+    X509 *cert = nullptr;
+    STACK_OF(X509) *certs = nullptr;
+    if (p7) {
+        if (PKCS7_type_is_signed(p7))
+            certs = p7->d.sign->cert;
+        else if (PKCS7_type_is_signedAndEnveloped(p7))
+            certs = p7->d.signed_and_enveloped->cert;
+        if (certs && sk_X509_num(certs) > 0)
+            cert = sk_X509_value(certs, 0);
+    }
+    X509 *owned = nullptr;
+    if (!cert) {
+        const unsigned char *xp = reinterpret_cast<const unsigned char *>(p7b.constData());
+        owned = d2i_X509(nullptr, &xp, long(p7b.size()));
+        cert = owned;
+    }
+    if (!cert) {
+        if (p7)
+            PKCS7_free(p7);
+        *error = QStringLiteral("解析 certificate.p7b 失败");
+        return false;
+    }
+    EVP_PKEY *pub = X509_get_pubkey(cert);
+    if (owned)
+        X509_free(owned);
+    if (p7)
+        PKCS7_free(p7);
+    if (!pub) {
+        *error = QStringLiteral("导入证书公钥失败");
+        return false;
+    }
+    EC_KEY *ec = EVP_PKEY_get1_EC_KEY(pub);
+    EVP_PKEY_free(pub);
+    if (!ec) {
+        *error = QStringLiteral("证书非 EC 公钥");
+        return false;
+    }
+    BIGNUM *r = BN_bin2bn(reinterpret_cast<const unsigned char *>(rawSig.constData()), 32, nullptr);
+    BIGNUM *s = BN_bin2bn(reinterpret_cast<const unsigned char *>(rawSig.constData() + 32), 32, nullptr);
+    ECDSA_SIG *sig = ECDSA_SIG_new();
+    if (!r || !s || !sig || ECDSA_SIG_set0(sig, r, s) != 1) {
+        BN_free(r);
+        BN_free(s);
+        ECDSA_SIG_free(sig);
+        EC_KEY_free(ec);
+        *error = QStringLiteral("构造签名失败");
+        return false;
+    }
+    const int ok = ECDSA_do_verify(reinterpret_cast<const unsigned char *>(challenge.constData()), 32, sig, ec);
+    ECDSA_SIG_free(sig);
+    EC_KEY_free(ec);
+    if (ok != 1) {
+        *error = QStringLiteral("私钥与证书不匹配");
+        return false;
+    }
+    return true;
 }
 
 #endif

@@ -2,6 +2,7 @@
 
 #include "AudioFocus.hpp"
 
+#include <QSettings>
 #include <QVariantMap>
 
 namespace {
@@ -27,6 +28,7 @@ CallSession::CallSession(AudioFocus *audio, QObject *parent)
         person(QStringLiteral("赵敏"), QStringLiteral("13600004444")),
         person(QStringLiteral("服务中心"), QStringLiteral("4008001234"))
     };
+    loadRecents();
     m_timer.setInterval(1000);
     connect(&m_timer, &QTimer::timeout, this, [this] {
         if (!m_active)
@@ -34,11 +36,18 @@ CallSession::CallSession(AudioFocus *audio, QObject *parent)
         ++m_elapsed;
         emit elapsedChanged();
     });
+    m_ringTimer.setSingleShot(true);
+    connect(&m_ringTimer, &QTimer::timeout, this, &CallSession::connectCall);
 }
 
 bool CallSession::active() const
 {
     return m_active;
+}
+
+bool CallSession::ringing() const
+{
+    return m_ringing;
 }
 
 QString CallSession::number() const
@@ -76,6 +85,25 @@ QVariantList CallSession::recents() const
     return m_recents;
 }
 
+void CallSession::loadRecents()
+{
+    const QVariantList saved = QSettings().value(QStringLiteral("phone/recents")).toList();
+    m_recents.clear();
+    for (const QVariant &item : saved) {
+        const QVariantMap map = item.toMap();
+        if (map.value(QStringLiteral("number")).toString().isEmpty())
+            continue;
+        m_recents.push_back(map);
+        if (m_recents.size() >= 8)
+            break;
+    }
+}
+
+void CallSession::saveRecents() const
+{
+    QSettings().setValue(QStringLiteral("phone/recents"), m_recents);
+}
+
 void CallSession::dial()
 {
     dialNumber(m_number.isEmpty() ? QStringLiteral("13800001111") : m_number);
@@ -83,7 +111,7 @@ void CallSession::dial()
 
 void CallSession::dialNumber(const QString &number)
 {
-    if (m_active || number.isEmpty())
+    if (m_active || m_ringing || number.isEmpty())
         return;
     m_number = number;
     m_name = lookup(number);
@@ -93,25 +121,43 @@ void CallSession::dialNumber(const QString &number)
     m_recents.prepend(person(m_name.isEmpty() ? number : m_name, number));
     if (m_recents.size() > 8)
         m_recents.removeLast();
-    m_active = true;
+    saveRecents();
+    m_ringing = true;
     emit infoChanged();
     emit elapsedChanged();
     emit mutedChanged();
     emit speakerChanged();
     emit recentsChanged();
-    emit activeChanged();
+    emit ringingChanged();
     m_audio->request(QStringLiteral("call"), m_audio->callPriority());
+    m_ringTimer.start(2000);
+}
+
+void CallSession::connectCall()
+{
+    if (!m_ringing)
+        return;
+    m_ringing = false;
+    m_active = true;
+    emit ringingChanged();
+    emit activeChanged();
     m_timer.start();
 }
 
 void CallSession::hangup()
 {
-    if (!m_active)
-        return;
+    m_ringTimer.stop();
+    const bool wasRinging = m_ringing;
+    const bool wasActive = m_active;
+    m_ringing = false;
     m_active = false;
     m_timer.stop();
-    emit activeChanged();
-    m_audio->release(QStringLiteral("call"));
+    if (wasRinging)
+        emit ringingChanged();
+    if (wasActive)
+        emit activeChanged();
+    if (wasRinging || wasActive)
+        m_audio->release(QStringLiteral("call"));
 }
 
 void CallSession::toggleMuted()

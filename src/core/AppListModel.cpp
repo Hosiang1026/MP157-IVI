@@ -42,6 +42,12 @@ QVariant AppListModel::data(const QModelIndex &index, int role) const
         return item.icon;
     case ColorRole:
         return item.color;
+    case BlurbRole:
+        return item.blurb;
+    case VersionRole:
+        return item.version;
+    case SizeKbRole:
+        return item.sizeKb;
     case DockRole:
         return item.dock;
     case DockOrderRole:
@@ -61,6 +67,9 @@ QHash<int, QByteArray> AppListModel::roleNames() const
         {EntryRole, "entry"},
         {IconRole, "icon"},
         {ColorRole, "color"},
+        {BlurbRole, "blurb"},
+        {VersionRole, "version"},
+        {SizeKbRole, "sizeKb"},
         {DockRole, "dock"},
         {DockOrderRole, "dockOrder"},
         {BuiltinRole, "builtin"}
@@ -87,6 +96,9 @@ QVariantMap AppListModel::info(const QString &key) const
         map.insert(QStringLiteral("name"), item.name);
         map.insert(QStringLiteral("color"), item.color);
         map.insert(QStringLiteral("entry"), item.entry);
+        map.insert(QStringLiteral("blurb"), item.blurb);
+        map.insert(QStringLiteral("version"), item.version);
+        map.insert(QStringLiteral("sizeKb"), item.sizeKb);
         return map;
     }
     return {};
@@ -162,6 +174,9 @@ QList<AppItem> AppListModel::readDirectory(const QString &directory)
         item.name = obj.value(QStringLiteral("name")).toString(item.id);
         item.entry = QUrl::fromLocalFile(entryPath).toString();
         item.color = obj.value(QStringLiteral("color")).toString(QStringLiteral("#3A3A3C"));
+        item.blurb = obj.value(QStringLiteral("blurb")).toString();
+        item.version = obj.value(QStringLiteral("version")).toString(QStringLiteral("1.0"));
+        item.sizeKb = obj.value(QStringLiteral("sizeKb")).toInt(0);
         item.dock = obj.value(QStringLiteral("dock")).toBool(false);
         item.dockOrder = obj.value(QStringLiteral("dockOrder")).toInt(100);
         item.builtin = obj.value(QStringLiteral("builtin")).toBool(false);

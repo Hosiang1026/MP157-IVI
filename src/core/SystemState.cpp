@@ -1,4 +1,5 @@
 #include "SystemState.hpp"
+#include "UpdateService.hpp"
 
 #include <QDateTime>
 #include <QDir>
@@ -100,6 +101,11 @@ SystemState::SystemState(QObject *parent)
     QSettings settings;
     m_autoTheme = settings.value(QStringLiteral("autoTheme"), true).toBool();
     m_manualDark = settings.value(QStringLiteral("manualDark"), false).toBool();
+    m_brightness = qBound(0.15, settings.value(QStringLiteral("brightness"), 0.85).toReal(), 1.0);
+    m_volume = qBound(0.0, settings.value(QStringLiteral("volume"), 0.5).toReal(), 1.0);
+    m_bluetooth = settings.value(QStringLiteral("bluetooth"), true).toBool();
+    m_wifi = settings.value(QStringLiteral("wifi"), true).toBool();
+    m_developerMode = settings.value(QStringLiteral("developerMode"), false).toBool();
     m_dark = m_autoTheme ? nightNow() : m_manualDark;
     m_time = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
     m_timer.setInterval(1000);
@@ -109,6 +115,9 @@ SystemState::SystemState(QObject *parent)
     connect(&m_linkTimer, &QTimer::timeout, this, &SystemState::refreshLink);
     m_linkTimer.start();
     QTimer::singleShot(12000, this, &SystemState::refreshLink);
+#if defined(Q_OS_LINUX)
+    applyLinuxBacklight(m_brightness);
+#endif
 }
 
 qreal SystemState::brightness() const
@@ -122,6 +131,7 @@ void SystemState::setBrightness(qreal value)
     if (qFuzzyCompare(m_brightness, value))
         return;
     m_brightness = value;
+    QSettings().setValue(QStringLiteral("brightness"), m_brightness);
 #if defined(Q_OS_LINUX)
     applyLinuxBacklight(m_brightness);
 #endif
@@ -139,6 +149,7 @@ void SystemState::setVolume(qreal value)
     if (qFuzzyCompare(m_volume, value))
         return;
     m_volume = value;
+    QSettings().setValue(QStringLiteral("volume"), m_volume);
     emit volumeChanged();
 }
 
@@ -152,6 +163,7 @@ void SystemState::setBluetooth(bool value)
     if (m_bluetooth == value)
         return;
     m_bluetooth = value;
+    QSettings().setValue(QStringLiteral("bluetooth"), m_bluetooth);
     emit bluetoothChanged();
 }
 
@@ -180,8 +192,47 @@ void SystemState::setWifi(bool value)
     if (m_wifi == value)
         return;
     m_wifi = value;
+    QSettings().setValue(QStringLiteral("wifi"), m_wifi);
     emit wifiChanged();
     refreshLink();
+}
+
+bool SystemState::developerMode() const
+{
+    return m_developerMode;
+}
+
+void SystemState::setDeveloperMode(bool value)
+{
+    if (m_developerMode == value)
+        return;
+    m_developerMode = value;
+    QSettings().setValue(QStringLiteral("developerMode"), value);
+    emit developerModeChanged();
+}
+
+QString SystemState::appVersion() const
+{
+    return UpdateService::readInstalledVersion();
+}
+
+void SystemState::unlockDeveloper()
+{
+    ++m_devTaps;
+    if (m_devTaps < 7)
+        return;
+    m_devTaps = 0;
+    setDeveloperMode(true);
+}
+
+QVariant SystemState::pref(const QString &key, const QVariant &fallback) const
+{
+    return QSettings().value(key, fallback);
+}
+
+void SystemState::setPref(const QString &key, const QVariant &value)
+{
+    QSettings().setValue(key, value);
 }
 
 QString SystemState::time() const
@@ -343,32 +394,32 @@ bool SystemState::dark() const
 
 QString SystemState::page() const
 {
-    return m_dark ? QStringLiteral("#000000") : QStringLiteral("#F2F2F7");
+    return m_dark ? QStringLiteral("#10131A") : QStringLiteral("#F2F2F7");
 }
 
 QString SystemState::card() const
 {
-    return m_dark ? QStringLiteral("#1C1C1E") : QStringLiteral("#FFFFFF");
+    return m_dark ? QStringLiteral("#1B2030") : QStringLiteral("#FFFFFF");
 }
 
 QString SystemState::ink() const
 {
-    return m_dark ? QStringLiteral("#FFFFFF") : QStringLiteral("#000000");
+    return m_dark ? QStringLiteral("#E8ECF4") : QStringLiteral("#000000");
 }
 
 QString SystemState::secondary() const
 {
-    return QStringLiteral("#8E8E93");
+    return m_dark ? QStringLiteral("#8A93A6") : QStringLiteral("#8E8E93");
 }
 
 QString SystemState::fill() const
 {
-    return m_dark ? QStringLiteral("#3A3A3C") : QStringLiteral("#E5E5EA");
+    return m_dark ? QStringLiteral("#2A3142") : QStringLiteral("#E5E5EA");
 }
 
 QString SystemState::highlight() const
 {
-    return m_dark ? QStringLiteral("#1A3D66") : QStringLiteral("#E5F1FF");
+    return m_dark ? QStringLiteral("#1F3A5C") : QStringLiteral("#E5F1FF");
 }
 
 bool SystemState::nightNow() const

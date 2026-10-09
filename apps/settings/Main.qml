@@ -23,67 +23,6 @@ Item {
 
             Text { text: "设置"; color: SystemState.ink; font.pixelSize: 28; font.bold: true }
 
-            Text { text: "天气调试"; color: SystemState.secondary; font.pixelSize: 13; leftPadding: 12 }
-            Rectangle {
-                width: parent.width
-                height: weatherDebug.implicitHeight + 20
-                radius: 12
-                color: SystemState.card
-                Flow {
-                    id: weatherDebug
-                    x: 12
-                    y: 10
-                    width: parent.width - 24
-                    spacing: 8
-                    Repeater {
-                        model: [
-                            { mode: "", label: "实况" },
-                            { mode: "clear", label: "晴" },
-                            { mode: "night", label: "晴夜" },
-                            { mode: "cloudy", label: "多云" },
-                            { mode: "overcast", label: "阴" },
-                            { mode: "fog", label: "雾" },
-                            { mode: "haze", label: "霾" },
-                            { mode: "dust", label: "沙尘" },
-                            { mode: "sandLift", label: "扬沙" },
-                            { mode: "wind", label: "大风" },
-                            { mode: "blizzard", label: "暴雪" },
-                            { mode: "frost", label: "霜" },
-                            { mode: "ponding", label: "积水" },
-                            { mode: "wetRoad", label: "湿滑" },
-                            { mode: "typhoon", label: "台风" },
-                            { mode: "rain", label: "小雨" },
-                            { mode: "rainMid", label: "中雨" },
-                            { mode: "rainHard", label: "暴雨" },
-                            { mode: "thunder", label: "雷雨" },
-                            { mode: "sleet", label: "雨夹雪" },
-                            { mode: "freezeRain", label: "冻雨" },
-                            { mode: "snow", label: "小雪" },
-                            { mode: "snowMid", label: "中雪" },
-                            { mode: "snowHard", label: "大雪" },
-                            { mode: "hail", label: "冰雹" }
-                        ]
-                        delegate: Rectangle {
-                            required property var modelData
-                            width: 72
-                            height: 32
-                            radius: 8
-                            color: Weather.preview === modelData.mode ? "#007AFF" : SystemState.fill
-                            Text {
-                                anchors.centerIn: parent
-                                text: modelData.label
-                                color: Weather.preview === modelData.mode ? "#FFFFFF" : SystemState.ink
-                                font.pixelSize: 14
-                            }
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: Weather.setPreview(modelData.mode)
-                            }
-                        }
-                    }
-                }
-            }
-
             Text { text: "连接"; color: SystemState.secondary; font.pixelSize: 13; leftPadding: 12 }
             Rectangle {
                 width: parent.width
@@ -335,24 +274,243 @@ Item {
             Text { text: "通用"; color: SystemState.secondary; font.pixelSize: 13; leftPadding: 12 }
             Rectangle {
                 width: parent.width
-                height: 48
+                height: aboutCol.implicitHeight + 24
                 radius: 12
                 color: SystemState.card
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: 16
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "关于本机"
-                    color: SystemState.ink
-                    font.pixelSize: 16
+                Column {
+                    id: aboutCol
+                    x: 16
+                    y: 12
+                    width: parent.width - 32
+                    spacing: 6
+                    Text {
+                        text: "关于本机"
+                        color: SystemState.ink
+                        font.pixelSize: 16
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: SystemState.unlockDeveloper()
+                        }
+                    }
+                    Text {
+                        text: "MP157 IVI  " + SystemState.appVersion
+                        color: SystemState.secondary
+                        font.pixelSize: 14
+                    }
+                    Text {
+                        text: "网络 " + (!SystemState.wifi ? "关闭" : (SystemState.wifiName.length ? SystemState.wifiName : "未连接"))
+                              + " · 蓝牙 " + (SystemState.bluetooth ? "开" : "关")
+                        color: SystemState.secondary
+                        font.pixelSize: 13
+                    }
+                    Text {
+                        visible: SystemState.developerMode
+                        text: "开发者模式已开启"
+                        color: "#007AFF"
+                        font.pixelSize: 13
+                    }
                 }
-                Text {
+            }
+
+            Text {
+                visible: SystemState.developerMode
+                text: "天气调试"
+                color: SystemState.secondary
+                font.pixelSize: 13
+                leftPadding: 12
+            }
+            Rectangle {
+                visible: SystemState.developerMode
+                width: parent.width
+                height: weatherDebug.implicitHeight + 20
+                radius: 12
+                color: SystemState.card
+                Flow {
+                    id: weatherDebug
+                    x: 12
+                    y: 10
+                    width: parent.width - 24
+                    spacing: 8
+                    Repeater {
+                        model: [
+                            { mode: "", label: "实况" },
+                            { mode: "clear", label: "晴" },
+                            { mode: "night", label: "晴夜" },
+                            { mode: "cloudy", label: "多云" },
+                            { mode: "overcast", label: "阴" },
+                            { mode: "fog", label: "雾" },
+                            { mode: "haze", label: "霾" },
+                            { mode: "dust", label: "沙尘" },
+                            { mode: "sandLift", label: "扬沙" },
+                            { mode: "wind", label: "大风" },
+                            { mode: "blizzard", label: "暴雪" },
+                            { mode: "frost", label: "霜" },
+                            { mode: "ponding", label: "积水" },
+                            { mode: "wetRoad", label: "湿滑" },
+                            { mode: "typhoon", label: "台风" },
+                            { mode: "rain", label: "小雨" },
+                            { mode: "rainMid", label: "中雨" },
+                            { mode: "rainHard", label: "暴雨" },
+                            { mode: "thunder", label: "雷雨" },
+                            { mode: "sleet", label: "雨夹雪" },
+                            { mode: "freezeRain", label: "冻雨" },
+                            { mode: "snow", label: "小雪" },
+                            { mode: "snowMid", label: "中雪" },
+                            { mode: "snowHard", label: "大雪" },
+                            { mode: "hail", label: "冰雹" }
+                        ]
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: 72
+                            height: 32
+                            radius: 8
+                            color: Weather.preview === modelData.mode ? "#007AFF" : SystemState.fill
+                            Text {
+                                anchors.centerIn: parent
+                                text: modelData.label
+                                color: Weather.preview === modelData.mode ? "#FFFFFF" : SystemState.ink
+                                font.pixelSize: 14
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: Weather.setPreview(modelData.mode)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text {
+                visible: SystemState.developerMode
+                text: "更新清单 URL"
+                color: SystemState.secondary
+                font.pixelSize: 13
+                leftPadding: 12
+            }
+            Rectangle {
+                visible: SystemState.developerMode
+                width: parent.width
+                height: 60
+                radius: 12
+                color: SystemState.card
+                TextField {
+                    id: manifestField
+                    anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.rightMargin: 16
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "MP157 IVI  0.1"
-                    color: SystemState.secondary
-                    font.pixelSize: 15
+                    anchors.margins: 12
+                    height: 36
+                    placeholderText: "更新清单 URL"
+                    color: SystemState.ink
+                    placeholderTextColor: SystemState.secondary
+                    text: UpdateService.manifestUrl
+                    onEditingFinished: UpdateService.manifestUrl = text
+                    background: Rectangle {
+                        radius: 8
+                        color: SystemState.fill
+                    }
+                }
+            }
+
+            Text { text: "软件更新"; color: SystemState.secondary; font.pixelSize: 13; leftPadding: 12 }
+            Rectangle {
+                width: parent.width
+                height: updateCol.implicitHeight + 24
+                radius: 12
+                color: SystemState.card
+                Column {
+                    id: updateCol
+                    x: 16
+                    y: 12
+                    width: parent.width - 32
+                    spacing: 10
+                    Text {
+                        text: UpdateService.statusText
+                        color: SystemState.ink
+                        font.pixelSize: 15
+                        wrapMode: Text.WordWrap
+                        width: parent.width
+                    }
+                    Text {
+                        visible: UpdateService.notes.length > 0 && (UpdateService.status === "available" || UpdateService.status === "ready")
+                        text: UpdateService.notes
+                        color: SystemState.secondary
+                        font.pixelSize: 13
+                        wrapMode: Text.WordWrap
+                        width: parent.width
+                    }
+                    Rectangle {
+                        visible: UpdateService.status === "downloading" || UpdateService.status === "verifying" || UpdateService.status === "applying"
+                        width: parent.width
+                        height: 6
+                        radius: 3
+                        color: SystemState.fill
+                        Rectangle {
+                            width: parent.width * UpdateService.progress
+                            height: parent.height
+                            radius: 3
+                            color: "#007AFF"
+                        }
+                    }
+                    Row {
+                        spacing: 10
+                        Rectangle {
+                            width: 120
+                            height: 34
+                            radius: 17
+                            color: UpdateService.busy ? SystemState.fill : "#007AFF"
+                            Text {
+                                anchors.centerIn: parent
+                                text: UpdateService.busy ? "检查中" : "检查更新"
+                                color: UpdateService.busy ? SystemState.secondary : "#FFFFFF"
+                                font.pixelSize: 14
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: !UpdateService.busy
+                                onClicked: {
+                                    if (SystemState.developerMode)
+                                        UpdateService.manifestUrl = manifestField.text
+                                    UpdateService.checkForUpdate()
+                                }
+                            }
+                        }
+                        Rectangle {
+                            visible: UpdateService.status === "available"
+                            width: 120
+                            height: 34
+                            radius: 17
+                            color: "#34C759"
+                            Text {
+                                anchors.centerIn: parent
+                                text: "立即升级"
+                                color: "#FFFFFF"
+                                font.pixelSize: 14
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: !UpdateService.busy
+                                onClicked: UpdateService.startUpdate()
+                            }
+                        }
+                        Rectangle {
+                            visible: UpdateService.busy
+                            width: 80
+                            height: 34
+                            radius: 17
+                            color: SystemState.fill
+                            Text {
+                                anchors.centerIn: parent
+                                text: "取消"
+                                color: SystemState.ink
+                                font.pixelSize: 14
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: UpdateService.cancel()
+                            }
+                        }
+                    }
                 }
             }
 

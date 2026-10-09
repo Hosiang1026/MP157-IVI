@@ -26,6 +26,8 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/wallpapers/
         DESTINATION share/mp157-ivi/wallpapers/builtin)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/media/
         DESTINATION share/mp157-ivi/media)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets/maps/
+        DESTINATION share/mp157-ivi/maps)
 install(PROGRAMS
         ${CMAKE_SOURCE_DIR}/scripts/run-ivi-shell.sh
         ${CMAKE_SOURCE_DIR}/scripts/mp157-board-check.sh

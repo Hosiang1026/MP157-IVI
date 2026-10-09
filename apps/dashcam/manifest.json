@@ -1,0 +1,8 @@
+{
+  "name": "行车记录仪",
+  "entry": "Main.qml",
+  "color": "#FF453A",
+  "dock": false,
+  "builtin": true,
+  "order": 6
+}

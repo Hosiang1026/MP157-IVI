@@ -146,6 +146,8 @@ bool AppCatalog::addToDock(const QString &id)
     QStringList ids = dockIds();
     if (ids.contains(id))
         return true;
+    if (ids.size() >= kMaxDock)
+        return false;
     ids.append(id);
     saveDock(ids);
     reload();
@@ -158,6 +160,8 @@ bool AppCatalog::moveDock(const QString &id, int index)
         return false;
     QStringList ids = dockIds();
     const int from = ids.indexOf(id);
+    if (from < 0 && ids.size() >= kMaxDock)
+        return false;
     if (from >= 0)
         ids.removeAt(from);
     if (from >= 0 && from < index)

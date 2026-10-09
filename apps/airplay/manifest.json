@@ -1,0 +1,8 @@
+{
+  "name": "AirPlay",
+  "entry": "Main.qml",
+  "color": "#BF5AF2",
+  "dock": false,
+  "builtin": true,
+  "order": 8
+}

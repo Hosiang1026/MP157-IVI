@@ -59,6 +59,16 @@ Item {
         return 0
     }
 
+    readonly property bool staticWx: {
+        const k = Weather.kind
+        return k === "clear" || k === "overcast" || k === "frost" || k === "wetRoad"
+    }
+    readonly property bool slowWx: {
+        const k = Weather.kind
+        return k === "cloudy" || k === "fog" || k === "haze" || k === "dust" || k === "ponding"
+    }
+    readonly property bool effectOn: root.active && root.opacity > 0.01 && root.shaderReady && root.wx > 0
+
     property real fromWx: 0
     property real toWx: 0
     property real fade: 1
@@ -84,11 +94,13 @@ Item {
         to: 1
         duration: 1800
         easing.type: Easing.InOutQuad
+        running: false
     }
 
     ShaderEffect {
+        id: fx
         anchors.fill: parent
-        visible: root.active && root.shaderReady && root.wx > 0
+        visible: root.effectOn
         property variant wallpaper: root.wallpaper
         property real time: 0
         property real wx: root.toWx
@@ -96,12 +108,24 @@ Item {
         property real wx2: root.fromWx
         property real fade: root.fade
         fragmentShader: "qrc:/qt/qml/IviShell/weather.frag.qsb"
+
         NumberAnimation on time {
             from: 0
             to: 400
             duration: 400000
             loops: Animation.Infinite
-            running: root.opacity > 0.01 && root.wx > 0
+            running: root.effectOn && !root.staticWx && !root.slowWx
+        }
+
+        Timer {
+            interval: 200
+            running: root.effectOn && root.slowWx
+            repeat: true
+            onTriggered: {
+                fx.time += 0.2
+                if (fx.time >= 400)
+                    fx.time = 0
+            }
         }
     }
 }
