@@ -1,14 +1,15 @@
 # MP157-IVI
 
-STM32MP157 车机 UI 原型（Qt 6.8，1024×600）。桌面 Shell + 可安装 QML 应用 + 壁纸天气 Shader + Open-Meteo 实况与出行态推断。Windows 上开发与演示；目标部署为板端 Linux 全屏运行 `ivi-shell`。
+STM32MP157 车机 UI 原型（Qt 6.8，1024×600）。桌面 Shell + 可安装 QML 应用 + 壁纸天气 Shader + Open-Meteo 实况与出行态推断 + **无线 CarPlay 原型**（Windows）。目标部署为板端 Linux 全屏运行 `ivi-shell`。
 
-业务源码：`src/core/`（服务层）+ `src/shell/`（`ivi-shell` + QML）+ `apps/`（内置应用）+ `feed/`（应用商店包）。
+业务源码：`src/core/`（服务层）+ `src/carplay/`（无线 CarPlay）+ `src/shell/`（`ivi-shell` + QML）+ `apps/`（内置应用）+ `feed/`（应用商店包）。
 
 ## 调用链
 
 ```
 main.cpp
-  注册单例：SystemState / Weather / AppCatalog / MediaSession / NavSession / CallSession / …
+  注册单例：SystemState / Weather / AppCatalog / MediaSession / NavSession / CallSession / CarPlaySession / …
+  注册类型：VideoScreen / CarPlayVideoItem；image://carplay 帧提供者
   → QQmlApplicationEngine 加载 IviShell/Main.qml
 
 Main.qml
@@ -28,7 +29,14 @@ WeatherService（无 preview 时）
 AppCatalog
   扫描 apps/ 与 feed/ → installed / dock / available
   → install / uninstall / Dock 顺序持久化（QSettings）
-  POST_BUILD 将 apps、feed、assets 拷到 exe 旁
+  POST_BUILD 将 apps、feed、assets、offline-mfi 拷到 exe 旁
+
+CarPlaySession（apps/carplay）
+  offline-mfi（identity.pk8 + certificate.p7b）→ LocalMfiAuth
+  → Wi‑Fi（WLAN API）+ 蓝牙配对/选择（RFCOMM）
+  → iAP2 Wireless Bootstrap → AirPlayServer（:7000）+ Bonjour
+  → H.264 解码帧 → CarPlayVideoItem / 触控回传
+  日志：exe 旁 carplay.log
 ```
 
 ## 目录
@@ -36,15 +44,19 @@ AppCatalog
 | 路径 | 作用 |
 | --- | --- |
 | `src/core/` | C++ 服务：`WeatherService`、`AppCatalog`、`SystemState`、`MediaSession`、`NavSession`、`VehicleState` 等 |
+| `src/carplay/` | 无线 CarPlay：`CarPlaySession`、iAP2、AirPlay、蓝牙/Wi‑Fi、MFi、H.264 |
 | `src/shell/main.cpp` | 入口、QML 模块注册 |
-| `src/shell/qml/` | `Main`、`HomeScreen`、`StatusBar`、`AppStage`、`WeatherFx` |
+| `src/shell/qml/` | `Main`、`HomeScreen`、`StatusBar`、`AppStage`、`WeatherFx`、`AppGlyph` |
+| `src/shell/CarPlayVideoItem.*` | CarPlay 视频表面 |
 | `src/shell/shaders/weather.frag` | 壁纸天气片元着色器源码 |
 | `src/shell/weather.frag.qsb` | Qt Shader Tools 编译产物（打进 qrc） |
 | `apps/*/` | 内置应用：`manifest.json` + `Main.qml` |
 | `feed/*/` | 商店可安装包（如 radio） |
 | `assets/wallpapers/` | 内置壁纸 catalog |
 | `assets/media/` | 演示用音乐 / 视频文件 |
-| `CMakePresets.json` | Windows MSVC + Qt 6.8.3 预设 |
+| `assets/carplay/offline-mfi/` | MFi 身份（`identity.pk8`、`certificate.p7b`；本地目录，默认 gitignore） |
+| `third_party/ffmpeg/win64/` | 可选：Windows FFmpeg DLL（存在则 POST_BUILD 拷到 exe 旁） |
+| `CMakePresets.json` | Windows MSVC + Qt 6.8.3 预设；Linux `mp157` 交叉预设 |
 | `build/Debug/ivi-shell.exe` | 本地运行产物（Debug） |
 
 ---
@@ -53,6 +65,7 @@ AppCatalog
 
 | ID | 名称 | 说明 |
 | --- | --- | --- |
+| `carplay` | CarPlay | 无线 CarPlay：蓝牙 + Wi‑Fi + AirPlay 画面/触控 |
 | `music` | 音乐 | 本地 WAV 播放，`MediaSession` |
 | `video` | 视频 | `VideoScreen` 播演示 AVI |
 | `map` | 地图 | 导航占位，`NavSession` |
@@ -62,6 +75,23 @@ AppCatalog
 | `store` | 商店 | 从 `feed/` 安装应用 |
 
 `manifest.json` 字段：`name`、`entry`、`color`、`dock`、`dockOrder`、`builtin`、`order`。
+
+---
+
+## 无线 CarPlay（原型）
+
+**前提（Windows 演示）**
+
+- exe 旁 `offline-mfi/identity.pk8` + `certificate.p7b`（POST_BUILD 从 `assets/carplay/offline-mfi` 复制；缺则 `identityReady=false`）
+- 本机与 iPhone 同一 Wi‑Fi；填写该 Wi‑Fi 密码（发给手机）
+- 蓝牙已配对并选中目标手机
+- H.264：可选放置 `third_party/ffmpeg/win64/`，否则依赖已拷贝到输出目录的 FFmpeg DLL
+
+**流程**  
+选蓝牙手机 → 连 Wi‑Fi / 填密码 →「开始 CarPlay」→ iAP2 无线引导 → AirPlay `:7000` → 有视频后全屏 `CarPlayVideoItem` + 触控。
+
+**平台**  
+MFi 签名/验签与 WLAN/蓝牙主机 API 当前按 **Windows** 实现；Linux/MP157 侧 MFi（OpenSSL）尚未接入。非 Apple 认证量产栈。
 
 ---
 
@@ -117,7 +147,7 @@ cmake --build build --config Debug --target ivi-shell
 ## 构建与运行
 
 **依赖**  
-Qt **6.8.3**（MSVC 2022 x64）：Quick、QuickControls2、Network。预设里 `CMAKE_PREFIX_PATH` 指向本机 Qt 安装，可按环境修改 `CMakePresets.json`。
+Qt **6.8.3**（MSVC 2022 x64）：Quick、QuickControls2、Network、Gui、Concurrent。Windows CarPlay 另链 `wlanapi` / 蓝牙 / Media Foundation 等系统库；解码可选 FFmpeg win64。预设里 `CMAKE_PREFIX_PATH` 指向本机 Qt，可改 `CMakePresets.json`。
 
 **配置 / 编译**
 
@@ -133,7 +163,7 @@ cd build\Debug
 ivi-shell.exe
 ```
 
-工作目录须在 `ivi-shell.exe` 同级（含 `apps/`、`feed/`、`wallpapers/`、`media/`、`translations/`）。POST_BUILD 已自动复制资源；改 `apps/` 或 `assets/` 后需重新 build `ivi-shell` 或手动拷到 `build/Debug/`。
+工作目录须在 `ivi-shell.exe` 同级（含 `apps/`、`feed/`、`wallpapers/`、`media/`、`offline-mfi/`）。POST_BUILD 已自动复制；改 `apps/` 或 `assets/` 后需重新 build `ivi-shell` 或手动拷到 `build/Debug/`。
 
 **Linux / MP157 目标**  
 烧写 OpenSTLinux、交叉编译与上板部署见 **[docs/STM32MP157-烧写与部署.md](docs/STM32MP157-烧写与部署.md)**（从零开始，含 CubeProgrammer、目录布局、systemd）。
@@ -147,13 +177,14 @@ ivi-shell.exe
 | 壁纸当前项 | QSettings `wallpaper` |
 | 自动/手动深色 | QSettings `autoTheme` / `manualDark` |
 | Dock / 桌面图标顺序 | QSettings（`AppCatalog`） |
+| CarPlay 蓝牙/Wi‑Fi/手机 IP | QSettings `carplay/*` |
 | 天气调试 preview | **不持久化**，仅当次会话 |
 
 ---
 
 ## 现状说明
 
-当前为 **可演示的 IVI Shell 原型**，非量产车机。已有桌面框架、多应用、壁纸天气、模拟车控/导航/电话；**未**在 MP157 上完成 eglfs 量产验证，**未**接真实总线、蓝牙、地图 SDK、CarPlay/AA 认证体系。
+当前为 **可演示的 IVI Shell 原型**，非量产车机。已有桌面框架、多应用、壁纸天气、模拟车控/导航/电话，以及 **Windows 上无线 CarPlay 原型**（MFi 本地身份 + iAP2/AirPlay）。**未**在 MP157 上完成 eglfs/CarPlay 量产验证，**未**接真实总线；CarPlay **非** Apple MFi 认证交付物。
 
 ---
 
@@ -166,20 +197,20 @@ ivi-shell.exe
 | MP157 部署 | `cmake/stm32mp157-toolchain.cmake` + `scripts/build-mp157.sh` / `pack-mp157.sh` / `board-probe` | 真机 eglfs 联调、Yocto recipe |
 | 车身数据 | `VehicleState` 定时模拟 | SocketCAN / 厂商 DBC，车速/档位/门/灯/胎压等接真实信号 |
 | 定位与天气 | IP 定位 + Open-Meteo | GNSS 串口/USB；可选国内预警 API |
-| 蓝牙 | 未实现 | BlueZ：HFP 电话、A2DP 音乐，对接 `CallSession` / `MediaSession` |
+| 板端蓝牙 / CarPlay | Windows 无线原型已有 | 板端 BlueZ + OpenSSL MFi；对接 `CallSession` / `MediaSession` |
 | 导航 | `NavSession` 假步骤 | 接车机地图 SDK（高德/百度/Mapbox 等，含授权）或离线瓦片 |
 | 音频 | WAV + 简单 `AudioFocus` | 倒车/导航 ducking、多源混音、与 PipeWire/Pulse 策略 |
 | 镜像与交付 | 无 Yocto 层 | OpenSTLinux/Yocto recipe，固定内核与 rootfs |
 | 稳定性 | 无 | 看门狗、崩溃重启、日志采集、Shader/内存压测 |
 | OTA | 无 | 签名校验、A/B 或分区升级（应用层可先简易包） |
 
-**建议实施顺序**：MP157 稳定运行 → CAN → 蓝牙 → 导航 SDK → OTA/看门狗 → 再评估手机互联。
+**建议实施顺序**：MP157 稳定运行 → CAN → 板端蓝牙/CarPlay → 导航 SDK → OTA/看门狗。
 
 ### 阶段 B — 可实施但周期长（协议 / 授权 / 联调）
 
 | 项 | 说明 |
 | --- | --- |
-| CarPlay | MFi 或 USB dongle 方案；Host 模式、H.264、触控/旋钮规范 |
+| CarPlay 认证 | 正式 MFi / USB Host；本仓库原型不可替代认证与合规联调 |
 | Android Auto | Google 认证与 USB 协议栈 |
 | 语音 | 量产 TTS/ASR SDK（离线包、唤醒词） |
 | 在线 DRM 视频 | 多依赖投屏，车机侧一般不自建 |
@@ -207,4 +238,4 @@ ivi-shell.exe
 
 ## 与 CarPlay / MP157 的关系
 
-本仓库 **Shell 与 HMI** 可作为 MP157 上车界面基础；CarPlay/Android Auto、认证与 rootfs 与上述 **阶段 B/C** 同步规划，见 [docs/STM32MP157-烧写与部署.md](docs/STM32MP157-烧写与部署.md)。
+本仓库 **Shell 与 HMI** 可作为 MP157 上车界面基础；`src/carplay/` 为 Windows 无线 CarPlay 原型。量产认证、USB Host、板端 BlueZ/MFi 与 rootfs 见 **阶段 A/B/C** 与 [docs/STM32MP157-烧写与部署.md](docs/STM32MP157-烧写与部署.md)。
