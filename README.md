@@ -7,11 +7,7 @@ STM32MP157 车机 UI 原型（Qt 6.8，1024×600）。桌面 Shell + 可安装 Q
 当前版本：**v2.0.0.20261010**
 
 ![v1.0.0](./screen/v1.0.0.gif)
-![v2.0.0](..\MP157-IVI\screen\v2.0.0.gif)
-
-<p align="center">
-	<img border="1px" width="50%" src="./screen/v1.0.0.gif">
-</p>
+![v2.0.0](./screen/v2.0.0.gif)
 
 ## 更新日志
 
