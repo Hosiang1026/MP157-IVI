@@ -90,21 +90,11 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: 18
 
-            Column {
+            Text {
                 width: parent.width
-                spacing: 6
-                Text {
-                    text: "CarPlay"
-                    color: SystemState.ink
-                    font.pixelSize: 32
-                    font.bold: true
-                    font.letterSpacing: 0.5
-                }
-                Text {
-                    text: "无线连接"
-                    color: SystemState.secondary
-                    font.pixelSize: 15
-                }
+                text: "无线连接 · 有线请用前排 USB 互联口"
+                color: SystemState.secondary
+                font.pixelSize: 15
             }
 
             Rectangle {

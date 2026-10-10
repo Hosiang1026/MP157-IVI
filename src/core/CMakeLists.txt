@@ -7,6 +7,7 @@ add_library(ivi-core STATIC
     CameraService.cpp
     MediaSession.cpp
     CallSession.cpp
+    NotificationSession.cpp
     NavSession.cpp
     MapTiles.cpp
     WallpaperStore.cpp
@@ -14,6 +15,8 @@ add_library(ivi-core STATIC
     DlnaRenderer.cpp
     FfmpegUrlPlayer.cpp
     RadioSession.cpp
+    PodcastSession.cpp
+    StreamSession.cpp
     FileBrowser.cpp
     GpsSource.cpp
     UpdateService.cpp

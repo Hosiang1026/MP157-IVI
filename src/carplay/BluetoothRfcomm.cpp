@@ -66,7 +66,7 @@ bool parseBdaddr(const QString &address, bdaddr_t *out)
     return true;
 }
 
-int resolveRfcommChannel(const QString &address)
+int resolveRfcommChannel(const QString &address, const QString &serviceUuid)
 {
     QProcess proc;
     proc.setProcessChannelMode(QProcess::MergedChannels);
@@ -77,12 +77,25 @@ int resolveRfcommChannel(const QString &address)
         return 0;
     }
     const QString out = QString::fromUtf8(proc.readAll());
-    const QString uuid = QStringLiteral("00000000-deca-fade-deca-deafdecacafe");
+    const QString uuid = serviceUuid.trimmed().toLower();
+    const bool map = uuid.contains(QStringLiteral("1132"));
     const QStringList blocks = out.split(QStringLiteral("Service Name:"), Qt::SkipEmptyParts);
     for (const QString &block : blocks) {
-        if (!block.contains(uuid, Qt::CaseInsensitive)
-            && !block.contains(QStringLiteral("iAP2"), Qt::CaseInsensitive)
-            && !block.contains(QStringLiteral("Wireless iAP"), Qt::CaseInsensitive))
+        const QString b = block.toLower();
+        bool match = false;
+        if (!uuid.isEmpty() && b.contains(uuid))
+            match = true;
+        else if (map
+                 && (b.contains(QStringLiteral("message access"))
+                     || b.contains(QStringLiteral("map"))
+                     || b.contains(QStringLiteral("1132"))))
+            match = true;
+        else if (!map
+                 && (b.contains(QStringLiteral("00000000-deca-fade-deca-deafdecacafe"))
+                     || b.contains(QStringLiteral("iap2"))
+                     || b.contains(QStringLiteral("wireless iap"))))
+            match = true;
+        if (!match)
             continue;
         const QRegularExpression re(QStringLiteral("Channel:\\s*(\\d+)"));
         const auto m = re.match(block);
@@ -321,7 +334,46 @@ qint64 BluetoothRfcomm::writeData(const char *data, qint64 len)
 #endif
 }
 
+namespace {
+
+#ifdef Q_OS_WIN
+bool guidFromUuid(const QString &uuid, GUID *out)
+{
+    if (!out)
+        return false;
+    QString u = uuid.trimmed();
+    u.remove(QLatin1Char('{'));
+    u.remove(QLatin1Char('}'));
+    u.remove(QLatin1Char('-'));
+    if (u.size() != 32)
+        return false;
+    bool ok = false;
+    out->Data1 = u.mid(0, 8).toUInt(&ok, 16);
+    if (!ok)
+        return false;
+    out->Data2 = quint16(u.mid(8, 4).toUInt(&ok, 16));
+    if (!ok)
+        return false;
+    out->Data3 = quint16(u.mid(12, 4).toUInt(&ok, 16));
+    if (!ok)
+        return false;
+    for (int i = 0; i < 8; ++i) {
+        out->Data4[i] = quint8(u.mid(16 + i * 2, 2).toUInt(&ok, 16));
+        if (!ok)
+            return false;
+    }
+    return true;
+}
+#endif
+
+} // namespace
+
 bool BluetoothRfcomm::connectTo(const QString &address)
+{
+    return connectToUuid(address, QString::fromLatin1(kIap2Uuid));
+}
+
+bool BluetoothRfcomm::connectToUuid(const QString &address, const QString &serviceUuid)
 {
 #ifdef Q_OS_WIN
     QMutexLocker lock(&m_mutex);
@@ -347,6 +399,12 @@ bool BluetoothRfcomm::connectTo(const QString &address)
         addr = (addr << 8) | BTH_ADDR(v & 0xff);
     }
 
+    GUID service{};
+    if (!guidFromUuid(serviceUuid.isEmpty() ? QString::fromLatin1(kIap2Uuid) : serviceUuid, &service)) {
+        m_error = QStringLiteral("invalid service uuid");
+        return false;
+    }
+
     WSADATA wsa{};
     if (!m_wsaStarted) {
         if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
@@ -361,8 +419,6 @@ bool BluetoothRfcomm::connectTo(const QString &address)
         m_error = QStringLiteral("RFCOMM socket failed (%1)").arg(WSAGetLastError());
         return false;
     }
-
-    GUID service = {0x00000000, 0xdeca, 0xfade, {0xde, 0xca, 0xde, 0xaf, 0xde, 0xca, 0xca, 0xfe}};
 
     SOCKADDR_BTH sa{};
     sa.addressFamily = AF_BTH;
@@ -414,9 +470,14 @@ bool BluetoothRfcomm::connectTo(const QString &address)
         return false;
     }
 
-    int channel = resolveRfcommChannel(address);
+    const QString uuid = serviceUuid.isEmpty() ? QString::fromLatin1(kIap2Uuid) : serviceUuid;
+    int channel = resolveRfcommChannel(address, uuid);
     if (channel <= 0)
-        channel = 1;
+        channel = uuid.contains(QStringLiteral("1132"), Qt::CaseInsensitive) ? 0 : 1;
+    if (channel <= 0) {
+        m_error = QStringLiteral("MAP RFCOMM 通道未找到，手机需开启短信共享");
+        return false;
+    }
 
     const int sock = ::socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
     if (sock < 0) {
@@ -452,6 +513,8 @@ bool BluetoothRfcomm::connectTo(const QString &address)
     }
     return true;
 #else
+    Q_UNUSED(address);
+    Q_UNUSED(serviceUuid);
     QMutexLocker lock(&m_mutex);
     m_error = QStringLiteral("Bluetooth RFCOMM unsupported on this platform");
     return false;

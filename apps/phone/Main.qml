@@ -94,6 +94,89 @@ Item {
                 spacing: 18
                 width: Math.min(parent.width - 32, 320)
 
+                Rectangle {
+                    width: parent.width
+                    height: phoneBtCol.height + 16
+                    radius: 12
+                    color: SystemState.card
+                    Column {
+                        id: phoneBtCol
+                        x: 12
+                        y: 8
+                        width: parent.width - 24
+                        spacing: 6
+                        Text {
+                            text: BluetoothMediaHub.phoneAddress.length
+                                  ? ("电话 · " + (BluetoothMediaHub.phoneName || BluetoothMediaHub.phoneAddress)
+                                     + (BluetoothMediaHub.phoneConnected ? "" : " · 未连"))
+                                  : "电话 · 等待蓝牙手机连接"
+                            color: SystemState.secondary
+                            font.pixelSize: 12
+                            width: parent.width
+                            elide: Text.ElideRight
+                        }
+                        Flow {
+                            width: parent.width
+                            spacing: 6
+                            IosPressable {
+                                width: clearPhoneLbl.implicitWidth + 16
+                                height: 26
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: 7
+                                    color: BluetoothMediaHub.phoneAddress.length === 0
+                                           ? SystemState.selected : SystemState.fill
+                                }
+                                Text {
+                                    id: clearPhoneLbl
+                                    anchors.centerIn: parent
+                                    text: "本机模拟"
+                                    color: BluetoothMediaHub.phoneAddress.length === 0
+                                           ? SystemState.tint : SystemState.ink
+                                    font.pixelSize: 12
+                                }
+                                onClicked: BluetoothMediaHub.clearPhone()
+                            }
+                            Repeater {
+                                model: BluetoothMediaHub.devices
+                                delegate: IosPressable {
+                                    required property var modelData
+                                    width: Math.min(150, phoneChipRow.width + 16)
+                                    height: 26
+                                    opacity: modelData.paired ? 1 : 0.55
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: 7
+                                        color: modelData.phone ? SystemState.selected : SystemState.fill
+                                    }
+                                    Row {
+                                        id: phoneChipRow
+                                        anchors.centerIn: parent
+                                        spacing: 5
+                                        Rectangle {
+                                            width: 6
+                                            height: 6
+                                            radius: 3
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            color: modelData.connected ? SystemState.success : SystemState.secondary
+                                        }
+                                        Text {
+                                            text: modelData.name || modelData.address
+                                            color: modelData.phone ? SystemState.tint : SystemState.ink
+                                            font.pixelSize: 12
+                                            font.bold: !!modelData.phone
+                                            elide: Text.ElideRight
+                                            width: Math.min(120, implicitWidth)
+                                        }
+                                    }
+                                    onClicked: BluetoothMediaHub.selectPhoneDevice(modelData.address)
+                                    onPressAndHold: BluetoothMediaHub.pairDevice(modelData.address)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: parent.width
@@ -199,16 +282,9 @@ Item {
             spacing: 10
             visible: root.tab === "recents"
 
-            Text {
-                text: "最近"
-                color: SystemState.ink
-                font.pixelSize: 28
-                font.bold: true
-            }
-
             Item {
                 width: parent.width
-                height: parent.height - 48
+                height: parent.height
 
                 ListView {
                     anchors.fill: parent
@@ -270,13 +346,6 @@ Item {
             spacing: 10
             visible: root.tab === "contacts"
 
-            Text {
-                text: "联系人"
-                color: SystemState.ink
-                font.pixelSize: 28
-                font.bold: true
-            }
-
             IosSearchField {
                 id: contactSearch
                 width: parent.width
@@ -287,7 +356,7 @@ Item {
 
             Item {
                 width: parent.width
-                height: parent.height - 96
+                height: parent.height - 52
 
                 ListView {
                     anchors.fill: parent

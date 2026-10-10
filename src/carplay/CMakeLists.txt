@@ -9,6 +9,8 @@ set(CARPLAY_SOURCES
     BluetoothRfcomm.cpp
     BluetoothDevices.cpp
     BluetoothMediaHub.cpp
+    BluetoothMapClient.cpp
+    BluetoothAncsClient.cpp
     AirPlayCrypto.cpp
     AirPlayIdentity.cpp
     AirPlayControlCipher.cpp
@@ -36,10 +38,11 @@ target_include_directories(ivi-carplay PUBLIC
 )
 target_link_libraries(ivi-carplay PUBLIC Qt6::Core Qt6::Network Qt6::Gui Qt6::Concurrent ivi-core)
 if(WIN32)
-    target_link_libraries(ivi-carplay PUBLIC bcrypt ncrypt crypt32 ws2_32 Bthprops wlanapi mfplat mf mfuuid wmcodecdspuuid ole32 winmm)
+    target_link_libraries(ivi-carplay PUBLIC bcrypt ncrypt crypt32 ws2_32 Bthprops wlanapi mfplat mf mfuuid wmcodecdspuuid ole32 winmm windowsapp)
 elseif(UNIX)
     find_package(OpenSSL REQUIRED)
-    target_link_libraries(ivi-carplay PUBLIC OpenSSL::Crypto OpenSSL::SSL ${CMAKE_DL_LIBS})
+    find_package(Qt6 REQUIRED COMPONENTS DBus)
+    target_link_libraries(ivi-carplay PUBLIC OpenSSL::Crypto OpenSSL::SSL Qt6::DBus ${CMAKE_DL_LIBS})
     find_package(ALSA)
     if(ALSA_FOUND)
         target_compile_definitions(ivi-carplay PUBLIC IVI_HAVE_ALSA=1)

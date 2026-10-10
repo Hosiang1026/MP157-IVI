@@ -44,6 +44,52 @@ Item {
             width: flick.width - 28
             spacing: 10
 
+        Rectangle {
+            width: parent.width
+            height: 40
+            radius: 10
+            color: SystemState.card
+            border.color: SystemState.separator
+            border.width: 1 / Screen.devicePixelRatio
+            Row {
+                anchors.fill: parent
+                anchors.leftMargin: 14
+                anchors.rightMargin: 14
+                spacing: 16
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "CAR"
+                    color: SystemState.tint
+                    font.pixelSize: 13
+                    font.bold: true
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: VehicleState.locked ? "已上锁" : "未上锁"
+                    color: VehicleState.locked ? SystemState.success : SystemState.warning
+                    font.pixelSize: 13
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: VehicleState.lights ? "灯光开" : "灯光关"
+                    color: SystemState.secondary
+                    font.pixelSize: 13
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "续航 " + VehicleState.rangeKm + " km"
+                    color: SystemState.secondary
+                    font.pixelSize: 13
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: VehicleState.tireAlert ? "胎压告警" : "胎压正常"
+                    color: VehicleState.tireAlert ? SystemState.warning : SystemState.secondary
+                    font.pixelSize: 13
+                }
+            }
+        }
+
         Row {
             width: parent.width
             height: 290
@@ -60,7 +106,7 @@ Item {
                 Column {
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.verticalCenter: parent.verticalCenter
-                    anchors.verticalCenterOffset: -28
+                    anchors.verticalCenterOffset: NavSession.active ? -48 : -28
                     spacing: 4
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
@@ -74,6 +120,55 @@ Item {
                         text: "km/h"
                         color: SystemState.secondary
                         font.pixelSize: 14
+                    }
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 12
+                    anchors.bottomMargin: 58
+                    height: 44
+                    radius: 10
+                    color: SystemState.fill
+                    visible: NavSession.active
+                    Row {
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        spacing: 8
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: NavSession.turn === "left" ? "←"
+                                  : NavSession.turn === "right" ? "→"
+                                  : NavSession.turn === "arrive" ? "●" : "↑"
+                            color: SystemState.tint
+                            font.pixelSize: 20
+                            font.bold: true
+                        }
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width - 36
+                            spacing: 2
+                            Text {
+                                width: parent.width
+                                text: (NavSession.distanceM >= 1000
+                                       ? ((NavSession.distanceM / 1000).toFixed(1) + " km")
+                                       : (NavSession.distanceM + " m"))
+                                      + " · 限速 " + NavSession.speedLimit
+                                color: SystemState.ink
+                                font.pixelSize: 13
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                width: parent.width
+                                text: NavSession.text
+                                color: SystemState.secondary
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                            }
+                        }
                     }
                 }
 

@@ -11,6 +11,7 @@ class BluetoothRfcomm : public QIODevice {
     Q_OBJECT
 public:
     static constexpr const char *kIap2Uuid = "00000000-deca-fade-deca-deafdecacafe";
+    static constexpr const char *kMapUuid = "00001132-0000-1000-8000-00805f9b34fb";
 
     using WriteFn = std::function<qint64(const QByteArray &data)>;
     using ReadFn = std::function<QByteArray(int maxBytes)>;
@@ -19,6 +20,7 @@ public:
     ~BluetoothRfcomm() override;
 
     bool connectTo(const QString &address);
+    bool connectToUuid(const QString &address, const QString &serviceUuid);
     void disconnectFromHost();
     QString errorString() const;
 

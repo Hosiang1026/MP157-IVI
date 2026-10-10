@@ -3,11 +3,13 @@
 #include "BluetoothDevices.hpp"
 #include "BluetoothRfcomm.hpp"
 #include "CallSession.hpp"
+#include "NotificationSession.hpp"
 #include "ExistingWifi.hpp"
 #include "GpsSource.hpp"
 #include "Iap2LinkEngine.hpp"
 #include "MediaSession.hpp"
 #include "NavSession.hpp"
+#include "VehicleState.hpp"
 #include "Iap2LinkSession.hpp"
 #include "Iap2Protocol.hpp"
 #include "Iap2WirelessBootstrap.hpp"
@@ -144,6 +146,11 @@ CarPlaySession::CarPlaySession(QObject *parent)
                 if (m_call)
                     m_call->applyRemote(active, ringing, name, number);
             });
+    connect(&m_airPlay, &AirPlayServer::notificationInfo, this,
+            [this](const QString &appName, const QString &title, const QString &body) {
+                if (m_notifications)
+                    m_notifications->applyRemote(appName, title, body);
+            });
     connect(&m_airPlay, &AirPlayServer::log, this, [this](const QString &msg) {
         if (msg.startsWith(QLatin1String("touch "))
             && !msg.startsWith(QLatin1String("touch dropped")))
@@ -201,6 +208,17 @@ void CarPlaySession::setGpsSource(GpsSource *gps)
         connect(m_gps, &GpsSource::positionUpdated, this, &CarPlaySession::onGpsUpdated);
 }
 
+void CarPlaySession::setVehicleState(VehicleState *vehicle)
+{
+    if (m_vehicle == vehicle)
+        return;
+    if (m_vehicle)
+        disconnect(m_vehicle, nullptr, this, nullptr);
+    m_vehicle = vehicle;
+    if (m_vehicle)
+        connect(m_vehicle, &VehicleState::changed, this, &CarPlaySession::onVehicleChanged);
+}
+
 void CarPlaySession::setMediaSession(MediaSession *media)
 {
     m_media = media;
@@ -216,7 +234,18 @@ void CarPlaySession::setCallSession(CallSession *call)
     m_call = call;
 }
 
+void CarPlaySession::setNotificationSession(NotificationSession *notifications)
+{
+    m_notifications = notifications;
+}
+
 void CarPlaySession::onGpsUpdated()
+{
+    if (m_running && m_airPlayUp.load())
+        sendLocationNow();
+}
+
+void CarPlaySession::onVehicleChanged()
 {
     if (m_running && m_airPlayUp.load())
         sendLocationNow();
@@ -226,8 +255,11 @@ bool CarPlaySession::sendLocationNow()
 {
     if (!m_gps || !m_gps->hasFix())
         return false;
+    double speedMps = m_gps->speedMps();
+    if (m_vehicle && m_vehicle->speed() >= 0)
+        speedMps = m_vehicle->speed() / 3.6;
     return m_airPlay.sendLocation(m_gps->latitude(), m_gps->longitude(), m_gps->altitude(),
-                                  m_gps->speedMps(), m_gps->course(), m_gps->accuracy());
+                                  speedMps, m_gps->course(), m_gps->accuracy());
 }
 
 QString CarPlaySession::status() const { return m_status; }

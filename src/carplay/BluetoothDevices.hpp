@@ -14,5 +14,6 @@ bool disconnectDevice(const QString &address, QString *error = nullptr);
 bool setAudioEnabled(const QString &address, bool enabled, QString *error = nullptr);
 bool connectAudioProfile(const QString &address, QString *error = nullptr);
 bool disconnectAudioProfile(const QString &address, QString *error = nullptr);
+bool connectMessageProfile(const QString &address, QString *error = nullptr);
 
 } // namespace BluetoothDevices

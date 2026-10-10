@@ -211,6 +211,14 @@ MediaSession::MediaSession(SystemState *system, AudioFocus *audio, QObject *pare
     connect(m_system, &SystemState::bluetoothChanged, this, &MediaSession::updateSource);
     connect(m_system, &SystemState::volumeChanged, this, &MediaSession::applyVolume);
     connect(m_audio, &AudioFocus::duckedChanged, this, &MediaSession::applyVolume);
+    connect(m_audio, &AudioFocus::ownerChanged, this, [this] {
+        if (!m_playing || m_remoteActive)
+            return;
+        const QString owner = m_audio->owner();
+        if (owner.isEmpty() || owner == QLatin1String("media"))
+            return;
+        pause();
+    });
     m_timer.setInterval(500);
     connect(&m_timer, &QTimer::timeout, this, &MediaSession::poll);
 }
@@ -372,7 +380,8 @@ void MediaSession::play()
         m_playing = true;
         emit playingChanged();
     }
-    m_audio->request(QStringLiteral("media"), m_audio->mediaPriority());
+    const int prio = (m_btActive && !m_remoteActive) ? m_audio->btPriority() : m_audio->mediaPriority();
+    m_audio->request(QStringLiteral("media"), prio);
 #ifdef Q_OS_WIN
     if (mciStatus(L"status iviMusic mode") == QStringLiteral(""))
         openCurrent();
@@ -393,18 +402,20 @@ void MediaSession::play()
 
 void MediaSession::pause()
 {
+    if (!m_playing) {
+        m_audio->release(QStringLiteral("media"));
+        return;
+    }
 #ifdef Q_OS_WIN
     mci(QStringLiteral("pause iviMusic"));
 #elif defined(IVI_HAVE_ALSA)
     if (g_alsaMusic.pcm)
         snd_pcm_drop(g_alsaMusic.pcm), snd_pcm_prepare(g_alsaMusic.pcm);
 #endif
-    m_audio->release(QStringLiteral("media"));
-    if (!m_playing)
-        return;
     m_playing = false;
     m_timer.stop();
     emit playingChanged();
+    m_audio->release(QStringLiteral("media"));
 }
 
 void MediaSession::toggle()

@@ -6,14 +6,29 @@ import IviShell
 Item {
     id: root
 
+    property int mainTab: 0
     property string page: "playlists"
     property int playlistIndex: 0
     property string query: ""
     property bool showLyrics: false
+    property string streamQuery: ""
 
     readonly property int miniH: 80
     readonly property bool hasTrack: MediaSession.title.length > 0
-    readonly property bool showMini: hasTrack && page !== "player"
+    readonly property bool showMini: hasTrack && page !== "player" && mainTab === 0
+
+    Component.onCompleted: {
+        if (StreamSession.playing)
+            mainTab = 1
+    }
+
+    Connections {
+        target: StreamSession
+        function onLoggedInChanged() {
+            if (!StreamSession.loggedIn && root.mainTab === 1)
+                root.streamQuery = ""
+        }
+    }
 
     readonly property var playlists: {
         const all = MediaSession.tracks
@@ -133,14 +148,30 @@ Item {
         color: "transparent"
     }
 
+    IosSegmented {
+        id: mainTabBar
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.leftMargin: 16
+        anchors.rightMargin: 16
+        anchors.topMargin: 12
+        height: 40
+        labels: ["本地", "音流"]
+        currentIndex: root.mainTab
+        onActivated: function (index) { root.mainTab = index }
+    }
+
     Item {
         id: content
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: parent.top
+        anchors.top: mainTabBar.bottom
         anchors.bottom: root.page === "player" ? parent.bottom : miniBar.top
         anchors.margins: 16
+        anchors.topMargin: 12
         anchors.bottomMargin: root.page === "player" ? 16 : 8
+        visible: root.mainTab === 0
 
         Item {
             anchors.fill: parent
@@ -149,13 +180,6 @@ Item {
             Column {
                 anchors.fill: parent
                 spacing: 14
-
-                Text {
-                    text: "音乐"
-                    color: SystemState.ink
-                    font.pixelSize: 28
-                    font.bold: true
-                }
 
                 Rectangle {
                     width: parent.width
@@ -272,7 +296,7 @@ Item {
                                 Text {
                                     id: localLabel
                                     anchors.centerIn: parent
-                                    text: "本机"
+                                    text: "本机媒体"
                                     color: !MediaSession.bluetoothMode ? SystemState.tint : SystemState.ink
                                     font.pixelSize: 13
                                     font.bold: !MediaSession.bluetoothMode
@@ -283,7 +307,7 @@ Item {
                                 model: BluetoothMediaHub.devices
                                 delegate: IosPressable {
                                     required property var modelData
-                                    width: Math.min(180, btChipRow.width + 20)
+                                    width: Math.min(200, btChipRow.width + 20)
                                     height: 30
                                     opacity: modelData.paired ? 1 : 0.55
                                     Rectangle {
@@ -307,12 +331,12 @@ Item {
                                         }
                                         Text {
                                             id: btName
-                                            text: modelData.name || modelData.address
+                                            text: "媒体·" + (modelData.name || modelData.address)
                                             color: modelData.active ? SystemState.tint : SystemState.ink
                                             font.pixelSize: 13
                                             font.bold: modelData.active
                                             elide: Text.ElideRight
-                                            width: Math.min(140, implicitWidth)
+                                            width: Math.min(160, implicitWidth)
                                         }
                                     }
                                     onClicked: BluetoothMediaHub.selectDevice(modelData.address)
@@ -775,6 +799,359 @@ Item {
                             onClicked: root.showLyrics = false
                         }
                     }
+                }
+            }
+        }
+    }
+
+    Item {
+        id: streamPane
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: mainTabBar.bottom
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: 16
+        anchors.rightMargin: 16
+        anchors.topMargin: 12
+        anchors.bottomMargin: 8
+        visible: root.mainTab === 1
+
+        Column {
+            anchors.fill: parent
+            spacing: 12
+            visible: !StreamSession.loggedIn
+
+            Text {
+                text: "连接 Navidrome / Subsonic / Jellyfin"
+                color: SystemState.secondary
+                font.pixelSize: 14
+            }
+
+            Rectangle {
+                width: parent.width
+                height: loginCol.implicitHeight + 28
+                radius: 16
+                color: SystemState.card
+                border.width: 1 / Screen.devicePixelRatio
+                border.color: SystemState.separator
+
+                Column {
+                    id: loginCol
+                    x: 16
+                    y: 14
+                    width: parent.width - 32
+                    spacing: 12
+
+                    IosSegmented {
+                        width: parent.width
+                        height: 40
+                        labels: ["Subsonic", "Jellyfin"]
+                        currentIndex: StreamSession.backend === "jellyfin" ? 1 : 0
+                        onActivated: function (index) {
+                            StreamSession.backend = index === 1 ? "jellyfin" : "subsonic"
+                        }
+                    }
+
+                    TextField {
+                        id: serverField
+                        width: parent.width
+                        height: 40
+                        placeholderText: "服务器 http://192.168.1.10:4533"
+                        color: SystemState.ink
+                        placeholderTextColor: SystemState.secondary
+                        text: StreamSession.serverUrl
+                        background: Rectangle { radius: 10; color: SystemState.fill }
+                    }
+                    TextField {
+                        id: userField
+                        width: parent.width
+                        height: 40
+                        placeholderText: "用户名"
+                        color: SystemState.ink
+                        placeholderTextColor: SystemState.secondary
+                        text: StreamSession.username
+                        background: Rectangle { radius: 10; color: SystemState.fill }
+                    }
+                    TextField {
+                        id: passField
+                        width: parent.width
+                        height: 40
+                        placeholderText: "密码"
+                        echoMode: TextInput.Password
+                        color: SystemState.ink
+                        placeholderTextColor: SystemState.secondary
+                        text: StreamSession.password
+                        background: Rectangle { radius: 10; color: SystemState.fill }
+                    }
+
+                    Row {
+                        spacing: 12
+                        IosPressable {
+                            width: 120
+                            height: 40
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 12
+                                color: SystemState.tint
+                            }
+                            Text {
+                                anchors.centerIn: parent
+                                text: StreamSession.loading ? "连接中…" : "登录"
+                                color: "#FFFFFF"
+                                font.pixelSize: 16
+                                font.bold: true
+                            }
+                            onClicked: {
+                                StreamSession.serverUrl = serverField.text
+                                StreamSession.username = userField.text
+                                StreamSession.password = passField.text
+                                StreamSession.login()
+                            }
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: StreamSession.status + (StreamSession.detail.length ? (" · " + StreamSession.detail) : "")
+                            color: SystemState.secondary
+                            font.pixelSize: 13
+                        }
+                    }
+                }
+            }
+        }
+
+        Row {
+            anchors.fill: parent
+            spacing: 16
+            visible: StreamSession.loggedIn
+
+            Rectangle {
+                width: 300
+                height: parent.height
+                radius: 16
+                color: SystemState.card
+                border.width: 1 / Screen.devicePixelRatio
+                border.color: SystemState.separator
+                clip: true
+
+                Column {
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    spacing: 10
+
+                    Row {
+                        width: parent.width
+                        spacing: 8
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width - 80
+                            text: "专辑"
+                            color: SystemState.ink
+                            font.pixelSize: 18
+                            font.bold: true
+                        }
+                        IosPressable {
+                            width: 72
+                            height: 32
+                            anchors.verticalCenter: parent.verticalCenter
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 10
+                                color: SystemState.fill
+                            }
+                            Text {
+                                anchors.centerIn: parent
+                                text: "退出"
+                                color: SystemState.danger
+                                font.pixelSize: 13
+                            }
+                            onClicked: StreamSession.logout()
+                        }
+                    }
+
+                    ListView {
+                        width: parent.width
+                        height: parent.height - 48
+                        clip: true
+                        model: StreamSession.albums
+                        delegate: IosPressable {
+                            required property var modelData
+                            required property int index
+                            width: ListView.view.width
+                            height: 58
+                            Column {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 8
+                                anchors.right: parent.right
+                                anchors.rightMargin: 8
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 3
+                                Text {
+                                    width: parent.width
+                                    elide: Text.ElideRight
+                                    text: modelData.name
+                                    color: SystemState.ink
+                                    font.pixelSize: 15
+                                }
+                                Text {
+                                    width: parent.width
+                                    elide: Text.ElideRight
+                                    text: modelData.artist || ""
+                                    color: SystemState.secondary
+                                    font.pixelSize: 12
+                                }
+                            }
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 8
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: 0.5
+                                color: SystemState.separator
+                            }
+                            onClicked: StreamSession.openAlbum(modelData.id)
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: parent.width - 316
+                height: parent.height
+                radius: 16
+                color: SystemState.card
+                border.width: 1 / Screen.devicePixelRatio
+                border.color: SystemState.separator
+                clip: true
+
+                Column {
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    spacing: 10
+
+                    Row {
+                        width: parent.width
+                        spacing: 10
+                        IosSearchField {
+                            width: parent.width - 170
+                            height: 40
+                            placeholder: "搜索曲目"
+                            text: root.streamQuery
+                            onSubmitted: {
+                                root.streamQuery = text
+                                StreamSession.search(text)
+                            }
+                        }
+                        IosPressable {
+                            width: 72
+                            height: 40
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 12
+                                color: SystemState.fill
+                            }
+                            Text {
+                                anchors.centerIn: parent
+                                text: "专辑"
+                                color: SystemState.ink
+                                font.pixelSize: 14
+                            }
+                            onClicked: StreamSession.loadAlbums()
+                        }
+                        IosPressable {
+                            width: 72
+                            height: 40
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 12
+                                color: StreamSession.playing ? SystemState.danger : SystemState.tint
+                            }
+                            Text {
+                                anchors.centerIn: parent
+                                text: StreamSession.playing ? "停止" : "播放"
+                                color: "#FFFFFF"
+                                font.pixelSize: 14
+                                font.bold: true
+                            }
+                            onClicked: StreamSession.toggle()
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        elide: Text.ElideRight
+                        text: StreamSession.playing
+                              ? (StreamSession.title + (StreamSession.artist.length ? (" · " + StreamSession.artist) : ""))
+                              : (StreamSession.status + (StreamSession.detail.length ? (" · " + StreamSession.detail) : ""))
+                        color: StreamSession.playing ? SystemState.success : SystemState.secondary
+                        font.pixelSize: 13
+                    }
+
+                    ListView {
+                        width: parent.width
+                        height: parent.height - 96
+                        clip: true
+                        model: StreamSession.tracks
+                        delegate: IosPressable {
+                            required property var modelData
+                            required property int index
+                            width: ListView.view.width
+                            height: 58
+                            Rectangle {
+                                anchors.fill: parent
+                                color: StreamSession.currentIndex === index ? SystemState.selected : "transparent"
+                            }
+                            Column {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 10
+                                anchors.right: parent.right
+                                anchors.rightMargin: 10
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 3
+                                Text {
+                                    width: parent.width
+                                    elide: Text.ElideRight
+                                    text: modelData.title
+                                    color: StreamSession.currentIndex === index ? SystemState.tint : SystemState.ink
+                                    font.pixelSize: 16
+                                    font.bold: StreamSession.currentIndex === index
+                                }
+                                Text {
+                                    width: parent.width
+                                    elide: Text.ElideRight
+                                    text: (modelData.artist || "") + (modelData.album ? (" · " + modelData.album) : "")
+                                    color: SystemState.secondary
+                                    font.pixelSize: 12
+                                }
+                            }
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.leftMargin: 10
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: 0.5
+                                color: SystemState.separator
+                            }
+                            onClicked: StreamSession.playIndex(index)
+                        }
+                    }
+                }
+
+                IosEmptyState {
+                    anchors.centerIn: parent
+                    width: parent.width - 48
+                    visible: !StreamSession.loading && StreamSession.tracks.length === 0
+                    icon: "speaker"
+                    title: "选择专辑或搜索"
+                    subtitle: "登录后从左侧打开专辑，或搜索曲目"
+                }
+
+                IosSpinner {
+                    anchors.centerIn: parent
+                    width: 28
+                    height: 28
+                    visible: StreamSession.loading
+                    running: StreamSession.loading
+                    ink: SystemState.tint
                 }
             }
         }

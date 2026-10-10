@@ -1,5 +1,5 @@
 {
-  "name": "网络电台",
+  "name": "电台",
   "entry": "Main.qml",
   "color": "#FF9F0A",
   "dock": false,

@@ -43,6 +43,7 @@ qt_add_qml_module(ivi-shell
         qml/IosGroupedCard.qml
         qml/BootSplash.qml
         qml/LockScreen.qml
+        qml/ClusterNav.qml
         qml/VirtualKeyboard.qml
         qml/pinyin.js
     RESOURCES

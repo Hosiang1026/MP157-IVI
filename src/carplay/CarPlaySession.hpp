@@ -18,6 +18,8 @@ class CallSession;
 class GpsSource;
 class MediaSession;
 class NavSession;
+class NotificationSession;
+class VehicleState;
 
 class CarPlaySession : public QObject {
     Q_OBJECT
@@ -47,9 +49,11 @@ public:
     ~CarPlaySession() override;
 
     void setGpsSource(GpsSource *gps);
+    void setVehicleState(VehicleState *vehicle);
     void setMediaSession(MediaSession *media);
     void setNavSession(NavSession *nav);
     void setCallSession(CallSession *call);
+    void setNotificationSession(NotificationSession *notifications);
 
     QString status() const;
     QString detail() const;
@@ -120,12 +124,15 @@ private:
     void recoverStaleRunning();
     void emitCanStart();
     void onGpsUpdated();
+    void onVehicleChanged();
 
     LocalMfiAuth m_mfi;
     GpsSource *m_gps = nullptr;
+    VehicleState *m_vehicle = nullptr;
     MediaSession *m_media = nullptr;
     NavSession *m_nav = nullptr;
     CallSession *m_call = nullptr;
+    NotificationSession *m_notifications = nullptr;
     AirPlayIdentity m_airPlayIdentity;
     AirPlayServer m_airPlay;
     BonjourAdvertiser m_bonjour;

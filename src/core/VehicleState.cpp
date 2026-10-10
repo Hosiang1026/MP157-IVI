@@ -309,6 +309,24 @@ void VehicleState::tick()
         dirty = true;
     }
 
+    if (m_gear == QStringLiteral("R")) {
+        ++m_parkTick;
+        const qreal t = m_parkTick * 0.12;
+        auto wave = [](qreal t, qreal phase, qreal bias) {
+            const qreal v = 0.22 + 0.55 * (0.5 + 0.5 * qSin(t + phase)) + bias;
+            return qBound(0.0, v, 1.0);
+        };
+        m_parkRl = wave(t, 0.0, 0.05);
+        m_parkRcl = wave(t, 1.1, 0.12);
+        m_parkRcr = wave(t, 2.3, 0.08);
+        m_parkRr = wave(t, 3.4, 0.02);
+        dirty = true;
+    } else if (m_parkRl > 0 || m_parkRcl > 0 || m_parkRcr > 0 || m_parkRr > 0) {
+        m_parkRl = m_parkRcl = m_parkRcr = m_parkRr = 0;
+        m_parkTick = 0;
+        dirty = true;
+    }
+
     if (m_speed > 0) {
         m_distanceAcc += m_speed / 3600.0;
         if (m_distanceAcc >= 0.1) {
@@ -451,6 +469,16 @@ int VehicleState::alertIndex() const
     if (n <= 0)
         return 0;
     return m_alertIndex % n;
+}
+
+qreal VehicleState::parkRl() const { return m_parkRl; }
+qreal VehicleState::parkRcl() const { return m_parkRcl; }
+qreal VehicleState::parkRcr() const { return m_parkRcr; }
+qreal VehicleState::parkRr() const { return m_parkRr; }
+
+bool VehicleState::parkAlert() const
+{
+    return m_parkRl >= 0.72 || m_parkRcl >= 0.72 || m_parkRcr >= 0.72 || m_parkRr >= 0.72;
 }
 
 void VehicleState::setGear(const QString &gear)

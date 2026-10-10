@@ -22,9 +22,6 @@ Item {
             width: parent.width - 32
             spacing: 8
 
-            Text { text: "设置"; color: SystemState.ink; font.pixelSize: 28; font.bold: true }
-
-            Item { width: 1; height: 6 }
             Text { text: "连接"; color: SystemState.secondary; font.pixelSize: 13; leftPadding: 16 }
             Rectangle {
                 width: parent.width
@@ -184,6 +181,41 @@ Item {
                             onToggled: function (v) { SystemState.wifi = v }
                         }
                     }
+                }
+            }
+
+            Item { width: 1; height: 6 }
+            Text { text: "通知"; color: SystemState.secondary; font.pixelSize: 13; leftPadding: 16 }
+            Rectangle {
+                width: parent.width
+                height: 56
+                radius: 14
+                color: SystemState.card
+                border.width: 1 / Screen.devicePixelRatio
+                border.color: SystemState.separator
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 16
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "状态栏显示通知"
+                    color: SystemState.ink
+                    font.pixelSize: 16
+                }
+                Text {
+                    anchors.right: notifySwitch.left
+                    anchors.rightMargin: 10
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: BluetoothMediaHub.phoneConnected ? "iPhone 通知" : "未连手机"
+                    color: SystemState.secondary
+                    font.pixelSize: 13
+                }
+                IosToggle {
+                    id: notifySwitch
+                    anchors.right: parent.right
+                    anchors.rightMargin: 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    checked: NotificationSession.statusBarEnabled
+                    onToggled: function (v) { NotificationSession.statusBarEnabled = v }
                 }
             }
 

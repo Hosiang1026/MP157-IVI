@@ -31,13 +31,6 @@ Item {
             anchors.rightMargin: 16
             spacing: 16
 
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: "行车记录仪"
-                color: "#FFFFFF"
-                font.pixelSize: 22
-                font.bold: true
-            }
             Rectangle {
                 width: 8
                 height: 8

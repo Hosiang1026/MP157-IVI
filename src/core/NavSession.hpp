@@ -12,6 +12,7 @@ class NavSession : public QObject {
     Q_PROPERTY(int speedLimit READ speedLimit NOTIFY stepChanged)
     Q_PROPERTY(QString destination READ destination NOTIFY stepChanged)
     Q_PROPERTY(int etaMin READ etaMin NOTIFY stepChanged)
+    Q_PROPERTY(int distanceM READ distanceM NOTIFY stepChanged)
 public:
     explicit NavSession(QObject *parent = nullptr);
 
@@ -21,6 +22,7 @@ public:
     int speedLimit() const;
     QString destination() const;
     int etaMin() const;
+    int distanceM() const;
 
     Q_INVOKABLE void start();
     Q_INVOKABLE void startTo(const QString &destination);
@@ -40,6 +42,7 @@ private:
     int m_index = 0;
     int m_etaMin = 12;
     int m_speedLimit = 0;
+    int m_distanceM = 0;
     QString m_destination;
     QString m_text;
     QString m_turn;

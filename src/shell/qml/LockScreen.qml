@@ -23,8 +23,8 @@ Item {
     Text {
         id: weatherLine
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: parent.top
-        anchors.topMargin: 52
+        anchors.bottom: dial.top
+        anchors.bottomMargin: 20
         visible: Weather.place.length > 0 || Weather.condition.length > 0
         text: {
             let s = Weather.place

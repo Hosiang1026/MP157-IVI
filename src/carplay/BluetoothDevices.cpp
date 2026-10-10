@@ -477,4 +477,54 @@ bool disconnectAudioProfile(const QString &address, QString *error)
 #endif
 }
 
+bool connectMessageProfile(const QString &address, QString *error)
+{
+#ifdef Q_OS_WIN
+    BLUETOOTH_DEVICE_INFO info{};
+    info.dwSize = sizeof(info);
+    if (!lookupDevice(address, &info)) {
+        if (error)
+            *error = QStringLiteral("未找到设备");
+        return false;
+    }
+    if (!info.fAuthenticated) {
+        if (!authenticate(address, error))
+            return false;
+        if (!lookupDevice(address, &info)) {
+            if (error)
+                *error = QStringLiteral("配对后未找到设备");
+            return false;
+        }
+    }
+    GUID map = {0x00001132, 0x0000, 0x1000, {0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb}};
+    GUID hfp = {0x0000111f, 0x0000, 0x1000, {0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb}};
+    BluetoothSetServiceState(nullptr, &info, &map, BLUETOOTH_SERVICE_ENABLE);
+    BluetoothSetServiceState(nullptr, &info, &hfp, BLUETOOTH_SERVICE_ENABLE);
+    return true;
+#elif defined(Q_OS_LINUX)
+    const QString mac = normalizeMac(address);
+    if (mac.size() != 17) {
+        if (error)
+            *error = QStringLiteral("蓝牙地址无效");
+        return false;
+    }
+    runBt({QStringLiteral("power"), QStringLiteral("on")});
+    runBt({QStringLiteral("connect"), mac}, 20000);
+    QProcess proc;
+    proc.setProcessChannelMode(QProcess::MergedChannels);
+    proc.start(QStringLiteral("bluetoothctl"),
+               {QStringLiteral("connect-profile"), mac,
+                QStringLiteral("00001132-0000-1000-8000-00805f9b34fb")});
+    if (!proc.waitForFinished(20000))
+        proc.kill();
+    Q_UNUSED(error);
+    return true;
+#else
+    Q_UNUSED(address);
+    if (error)
+        *error = QStringLiteral("当前平台不支持");
+    return false;
+#endif
+}
+
 } // namespace BluetoothDevices

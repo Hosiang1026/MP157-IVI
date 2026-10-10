@@ -8,7 +8,7 @@ add_library(ivi-androidauto STATIC ${ANDROIDAUTO_SOURCES})
 target_include_directories(ivi-androidauto PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
-target_link_libraries(ivi-androidauto PUBLIC Qt6::Core)
+target_link_libraries(ivi-androidauto PUBLIC Qt6::Core ivi-core)
 if(WIN32)
     target_link_libraries(ivi-androidauto PUBLIC setupapi winusb)
 endif()

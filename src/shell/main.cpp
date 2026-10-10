@@ -3,10 +3,13 @@
 #include "AppCatalog.hpp"
 #include "AudioFocus.hpp"
 #include "CallSession.hpp"
+#include "NotificationSession.hpp"
 #include "CameraService.hpp"
 #include "CameraVideoItem.hpp"
 #include "AndroidAutoSession.hpp"
 #include "BluetoothMediaHub.hpp"
+#include "BluetoothMapClient.hpp"
+#include "BluetoothAncsClient.hpp"
 #include "CarPlaySession.hpp"
 #include "CarPlayVideoItem.hpp"
 #include "DlnaRenderer.hpp"
@@ -16,7 +19,9 @@
 #include "NavSession.hpp"
 #include "FileBrowser.hpp"
 #include "GpsSource.hpp"
+#include "PodcastSession.hpp"
 #include "RadioSession.hpp"
+#include "StreamSession.hpp"
 #include "SystemState.hpp"
 #include "UpdateService.hpp"
 #include "VehicleState.hpp"
@@ -215,10 +220,51 @@ int main(int argc, char *argv[])
     NavSession nav;
     MapTiles mapTiles;
     CallSession call(&audio);
+    NotificationSession notifications;
+    BluetoothMapClient btMap(&btMedia, &notifications);
+    BluetoothAncsClient btAncs(&btMedia, &notifications);
     RadioSession radio(&audio, &media);
-    QObject::connect(&media, &MediaSession::playingChanged, &radio, [&media, &radio] {
-        if (media.playing() && radio.playing())
-            radio.stop();
+    PodcastSession podcast(&audio, &media);
+    StreamSession stream(&audio, &media);
+    QObject::connect(&media, &MediaSession::playingChanged, &radio, [&] {
+        if (media.playing()) {
+            if (radio.playing())
+                radio.stop();
+            if (podcast.playing())
+                podcast.stop();
+            if (stream.playing())
+                stream.stop();
+        }
+    });
+    QObject::connect(&radio, &RadioSession::playingChanged, &podcast, [&] {
+        if (radio.playing()) {
+            if (podcast.playing())
+                podcast.stop();
+            if (stream.playing())
+                stream.stop();
+            if (media.playing())
+                media.pause();
+        }
+    });
+    QObject::connect(&podcast, &PodcastSession::playingChanged, &radio, [&] {
+        if (podcast.playing()) {
+            if (radio.playing())
+                radio.stop();
+            if (stream.playing())
+                stream.stop();
+            if (media.playing())
+                media.pause();
+        }
+    });
+    QObject::connect(&stream, &StreamSession::playingChanged, &radio, [&] {
+        if (stream.playing()) {
+            if (radio.playing())
+                radio.stop();
+            if (podcast.playing())
+                podcast.stop();
+            if (media.playing())
+                media.pause();
+        }
     });
     FileBrowser files(&media);
     GpsSource gps;
@@ -227,10 +273,18 @@ int main(int argc, char *argv[])
     WallpaperStore wallpapers;
     CarPlaySession carPlay;
     carPlay.setGpsSource(&gps);
+    carPlay.setVehicleState(&vehicle);
     carPlay.setMediaSession(&media);
     carPlay.setNavSession(&nav);
     carPlay.setCallSession(&call);
+    carPlay.setNotificationSession(&notifications);
     AndroidAutoSession androidAuto;
+    androidAuto.setGpsSource(&gps);
+    androidAuto.setVehicleState(&vehicle);
+    androidAuto.setNightMode(system.dark());
+    QObject::connect(&system, &SystemState::darkChanged, &androidAuto, [&] {
+        androidAuto.setNightMode(system.dark());
+    });
     QObject::connect(&carPlay, &CarPlaySession::runningChanged, &androidAuto, [&] {
         if (carPlay.running() && androidAuto.running())
             androidAuto.stop();
@@ -239,6 +293,20 @@ int main(int argc, char *argv[])
         if (androidAuto.running() && carPlay.running())
             carPlay.stop();
     });
+    auto syncProjectionFocus = [&] {
+        if (carPlay.running())
+            audio.request(QStringLiteral("carplay"), audio.projectionPriority());
+        else
+            audio.release(QStringLiteral("carplay"));
+        if (androidAuto.running())
+            audio.request(QStringLiteral("androidauto"), audio.projectionPriority());
+        else
+            audio.release(QStringLiteral("androidauto"));
+        if (carPlay.running() || androidAuto.running())
+            btMedia.clearActive();
+    };
+    QObject::connect(&carPlay, &CarPlaySession::runningChanged, &audio, syncProjectionFocus);
+    QObject::connect(&androidAuto, &AndroidAutoSession::runningChanged, &audio, syncProjectionFocus);
     AirPlayMirrorSession airPlayMirror;
     DlnaRenderer dlna(&audio);
 
@@ -252,7 +320,10 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "NavSession", &nav);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "MapTiles", &mapTiles);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "CallSession", &call);
+    qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "NotificationSession", &notifications);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "RadioSession", &radio);
+    qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "PodcastSession", &podcast);
+    qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "StreamSession", &stream);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "FileBrowser", &files);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "GpsSource", &gps);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "AppCatalog", &catalog);

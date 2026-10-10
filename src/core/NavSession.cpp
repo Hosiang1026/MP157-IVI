@@ -8,14 +8,15 @@ struct Step {
     const char *turn;
     const char *text;
     int speedLimit;
+    int distanceM;
 };
 
 const Step kSteps[] = {
-    {"straight", "沿当前道路直行 800 米", 60},
-    {"right", "300 米后右转", 40},
-    {"left", "前方 500 米左转", 50},
-    {"straight", "保持直行 1.2 公里", 80},
-    {"arrive", "目的地在右侧", 30},
+    {"straight", "沿当前道路直行 800 米", 60, 800},
+    {"right", "300 米后右转", 40, 300},
+    {"left", "前方 500 米左转", 50, 500},
+    {"straight", "保持直行 1.2 公里", 80, 1200},
+    {"arrive", "目的地在右侧", 30, 40},
 };
 
 }
@@ -72,6 +73,15 @@ int NavSession::etaMin() const
     return m_active ? m_etaMin : 0;
 }
 
+int NavSession::distanceM() const
+{
+    if (!m_active)
+        return 0;
+    if (m_remote)
+        return m_distanceM;
+    return kSteps[m_index].distanceM;
+}
+
 void NavSession::start()
 {
     startTo(m_destination.isEmpty() ? QStringLiteral("目的地") : m_destination);
@@ -83,6 +93,7 @@ void NavSession::startTo(const QString &destination)
     m_destination = destination.trimmed().isEmpty() ? QStringLiteral("目的地") : destination.trimmed();
     m_index = 0;
     m_etaMin = 12;
+    m_distanceM = kSteps[0].distanceM;
     if (!m_active) {
         m_active = true;
         emit activeChanged();
@@ -95,6 +106,7 @@ void NavSession::stop()
 {
     m_timer.stop();
     m_remote = false;
+    m_distanceM = 0;
     if (!m_active)
         return;
     m_active = false;
@@ -111,6 +123,7 @@ void NavSession::applyRemote(bool active, const QString &text, const QString &tu
     m_turn = turn;
     m_speedLimit = qMax(0, speedLimit);
     m_etaMin = qMax(0, etaMin);
+    m_distanceM = 0;
     if (!destination.isEmpty())
         m_destination = destination;
     if (m_active != active) {
@@ -129,5 +142,6 @@ void NavSession::advance()
     }
     ++m_index;
     m_etaMin = qMax(1, m_etaMin - 2);
+    m_distanceM = kSteps[m_index].distanceM;
     emit stepChanged();
 }

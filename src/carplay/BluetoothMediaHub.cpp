@@ -29,16 +29,42 @@ BluetoothMediaHub::BluetoothMediaHub(QObject *parent)
 QVariantList BluetoothMediaHub::devices() const { return m_devices; }
 QString BluetoothMediaHub::activeAddress() const { return m_activeAddress; }
 QString BluetoothMediaHub::activeName() const { return m_activeName; }
+QString BluetoothMediaHub::phoneAddress() const { return m_phoneAddress; }
+QString BluetoothMediaHub::phoneName() const { return m_phoneName; }
 QString BluetoothMediaHub::status() const { return m_status; }
 
-bool BluetoothMediaHub::activeConnected() const
+bool BluetoothMediaHub::deviceConnected(const QString &address) const
 {
+    const QString mac = normalizeMac(address);
     for (const QVariant &item : m_devices) {
         const QVariantMap map = item.toMap();
-        if (normalizeMac(map.value(QStringLiteral("address")).toString()) == m_activeAddress)
+        if (normalizeMac(map.value(QStringLiteral("address")).toString()) == mac)
             return map.value(QStringLiteral("connected")).toBool();
     }
     return false;
+}
+
+QString BluetoothMediaHub::deviceName(const QString &address) const
+{
+    const QString mac = normalizeMac(address);
+    for (const QVariant &item : m_devices) {
+        const QVariantMap map = item.toMap();
+        if (normalizeMac(map.value(QStringLiteral("address")).toString()) == mac) {
+            const QString name = map.value(QStringLiteral("name")).toString();
+            return name.isEmpty() ? mac : name;
+        }
+    }
+    return mac;
+}
+
+bool BluetoothMediaHub::activeConnected() const
+{
+    return deviceConnected(m_activeAddress);
+}
+
+bool BluetoothMediaHub::phoneConnected() const
+{
+    return deviceConnected(m_phoneAddress);
 }
 
 void BluetoothMediaHub::setStatus(const QString &status)
@@ -55,6 +81,8 @@ void BluetoothMediaHub::loadSettings()
     settings.beginGroup(QStringLiteral("btMedia"));
     m_activeAddress = normalizeMac(settings.value(QStringLiteral("activeAddress")).toString());
     m_activeName = settings.value(QStringLiteral("activeName")).toString();
+    m_phoneAddress = normalizeMac(settings.value(QStringLiteral("phoneAddress")).toString());
+    m_phoneName = settings.value(QStringLiteral("phoneName")).toString();
     settings.endGroup();
 }
 
@@ -64,18 +92,18 @@ void BluetoothMediaHub::saveSettings() const
     settings.beginGroup(QStringLiteral("btMedia"));
     settings.setValue(QStringLiteral("activeAddress"), m_activeAddress);
     settings.setValue(QStringLiteral("activeName"), m_activeName);
+    settings.setValue(QStringLiteral("phoneAddress"), m_phoneAddress);
+    settings.setValue(QStringLiteral("phoneName"), m_phoneName);
     settings.endGroup();
 }
 
 void BluetoothMediaHub::routePulseBluez(const QString &address) const
 {
 #ifdef Q_OS_LINUX
-    const QString compact = QString(address).remove(QLatin1Char(':')).toUpper();
     QProcess::execute(QStringLiteral("pactl"),
                       {QStringLiteral("set-card-profile"),
                        QStringLiteral("bluez_card.%1").arg(QString(address).replace(QLatin1Char(':'), QLatin1Char('_'))),
                        QStringLiteral("a2dp_sink")});
-    Q_UNUSED(compact);
 #else
     Q_UNUSED(address);
 #endif
@@ -84,12 +112,46 @@ void BluetoothMediaHub::routePulseBluez(const QString &address) const
 void BluetoothMediaHub::refresh()
 {
     QVariantList listed = BluetoothDevices::listDevices();
+
+    bool phoneOk = false;
+    QString autoAddr;
+    QString autoName;
+    for (const QVariant &item : listed) {
+        const QVariantMap map = item.toMap();
+        const QString addr = normalizeMac(map.value(QStringLiteral("address")).toString());
+        if (addr.size() != 17)
+            continue;
+        const bool paired = map.value(QStringLiteral("paired")).toBool();
+        const bool connected = map.value(QStringLiteral("connected")).toBool();
+        if (addr == m_phoneAddress && connected)
+            phoneOk = true;
+        if (autoAddr.isEmpty() && paired && connected) {
+            autoAddr = addr;
+            autoName = map.value(QStringLiteral("name")).toString();
+        }
+    }
+    bool phoneDirty = false;
+    if (!phoneOk && !autoAddr.isEmpty()) {
+        if (m_phoneAddress != autoAddr) {
+            m_phoneAddress = autoAddr;
+            m_phoneName = autoName.isEmpty() ? autoAddr : autoName;
+            phoneDirty = true;
+            BluetoothDevices::connectMessageProfile(m_phoneAddress, nullptr);
+        } else if (!autoName.isEmpty() && autoName != m_phoneName) {
+            m_phoneName = autoName;
+            phoneDirty = true;
+        }
+        if (phoneDirty)
+            saveSettings();
+    }
+
     QVariantList out;
     for (const QVariant &item : listed) {
         QVariantMap map = item.toMap();
         const QString addr = normalizeMac(map.value(QStringLiteral("address")).toString());
         map.insert(QStringLiteral("address"), addr);
         map.insert(QStringLiteral("active"), addr == m_activeAddress);
+        map.insert(QStringLiteral("phone"), addr == m_phoneAddress);
         out.append(map);
         if (addr == m_activeAddress) {
             const QString name = map.value(QStringLiteral("name")).toString();
@@ -98,17 +160,33 @@ void BluetoothMediaHub::refresh()
                 emit activeChanged();
             }
         }
+        if (addr == m_phoneAddress) {
+            const QString name = map.value(QStringLiteral("name")).toString();
+            if (!name.isEmpty() && name != m_phoneName) {
+                m_phoneName = name;
+                phoneDirty = true;
+            }
+        }
     }
     m_devices = out;
     emit devicesChanged();
     emit activeChanged();
+    emit phoneChanged();
 
-    if (m_activeAddress.isEmpty())
-        setStatus(QStringLiteral("未选择蓝牙音源"));
-    else if (activeConnected())
-        setStatus(QStringLiteral("正在使用 %1").arg(m_activeName.isEmpty() ? m_activeAddress : m_activeName));
-    else
-        setStatus(QStringLiteral("已选 %1 · 未连接").arg(m_activeName.isEmpty() ? m_activeAddress : m_activeName));
+    QStringList parts;
+    if (!m_phoneAddress.isEmpty()) {
+        parts << QStringLiteral("电话 %1%2")
+                     .arg(m_phoneName.isEmpty() ? m_phoneAddress : m_phoneName,
+                          phoneConnected() ? QString() : QStringLiteral("·未连"));
+    }
+    if (m_activeAddress.isEmpty()) {
+        parts << QStringLiteral("媒体 本机");
+    } else {
+        parts << QStringLiteral("媒体 %1%2")
+                     .arg(m_activeName.isEmpty() ? m_activeAddress : m_activeName,
+                          activeConnected() ? QString() : QStringLiteral("·未连"));
+    }
+    setStatus(parts.join(QStringLiteral(" · ")));
 }
 
 bool BluetoothMediaHub::selectDevice(const QString &address)
@@ -119,20 +197,9 @@ bool BluetoothMediaHub::selectDevice(const QString &address)
         return false;
     }
 
-    QString name = mac;
-    for (const QVariant &item : m_devices) {
-        const QVariantMap map = item.toMap();
-        if (normalizeMac(map.value(QStringLiteral("address")).toString()) == mac) {
-            name = map.value(QStringLiteral("name")).toString();
-            if (name.isEmpty())
-                name = mac;
-            break;
-        }
-    }
+    const QString name = deviceName(mac);
+    setStatus(QStringLiteral("切换媒体到 %1…").arg(name));
 
-    setStatus(QStringLiteral("切换到 %1…").arg(name));
-
-    // Keep ACL links; only move A2DP audio to the selected phone.
     for (const QVariant &item : m_devices) {
         const QVariantMap map = item.toMap();
         const QString other = normalizeMac(map.value(QStringLiteral("address")).toString());
@@ -161,20 +228,60 @@ bool BluetoothMediaHub::selectDevice(const QString &address)
     saveSettings();
     emit activeChanged();
     refresh();
-    setStatus(QStringLiteral("正在使用 %1").arg(m_activeName));
     return true;
 }
 
 void BluetoothMediaHub::clearActive()
 {
     if (!m_activeAddress.isEmpty())
-        BluetoothDevices::disconnectDevice(m_activeAddress, nullptr);
+        BluetoothDevices::disconnectAudioProfile(m_activeAddress, nullptr);
     m_activeAddress.clear();
     m_activeName.clear();
     saveSettings();
     emit activeChanged();
     refresh();
-    setStatus(QStringLiteral("已切回本机"));
+}
+
+bool BluetoothMediaHub::selectPhoneDevice(const QString &address)
+{
+    const QString mac = normalizeMac(address);
+    if (mac.size() != 17) {
+        setStatus(QStringLiteral("地址无效"));
+        return false;
+    }
+
+    const QString name = deviceName(mac);
+    setStatus(QStringLiteral("切换电话到 %1…").arg(name));
+
+    QString error;
+    if (!BluetoothDevices::isPaired(mac)) {
+        if (!BluetoothDevices::authenticate(mac, &error)) {
+            setStatus(error.isEmpty() ? QStringLiteral("配对失败") : error);
+            return false;
+        }
+    }
+    if (!BluetoothDevices::connectDevice(mac, &error)) {
+        setStatus(error.isEmpty() ? QStringLiteral("连接失败") : error);
+        refresh();
+        return false;
+    }
+    BluetoothDevices::connectMessageProfile(mac, nullptr);
+
+    m_phoneAddress = mac;
+    m_phoneName = name;
+    saveSettings();
+    emit phoneChanged();
+    refresh();
+    return true;
+}
+
+void BluetoothMediaHub::clearPhone()
+{
+    m_phoneAddress.clear();
+    m_phoneName.clear();
+    saveSettings();
+    emit phoneChanged();
+    refresh();
 }
 
 bool BluetoothMediaHub::pairDevice(const QString &address)

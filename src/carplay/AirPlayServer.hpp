@@ -78,6 +78,7 @@ signals:
     void navigationInfo(bool active, const QString &text, const QString &turn, int speedLimit, int etaMin,
                         const QString &destination);
     void telephonyInfo(bool active, bool ringing, const QString &name, const QString &number);
+    void notificationInfo(const QString &appName, const QString &title, const QString &body);
     void log(const QString &msg);
     void failed(const QString &msg);
 

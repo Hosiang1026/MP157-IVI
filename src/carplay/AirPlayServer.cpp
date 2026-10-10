@@ -1254,6 +1254,34 @@ void AirPlayServer::handleIncomingCommand(const QVariantMap &cmd)
         return;
     }
 
+    if (type.contains(QStringLiteral("notif"), Qt::CaseInsensitive)
+        || type.contains(QStringLiteral("message"), Qt::CaseInsensitive)
+        || type.contains(QStringLiteral("sms"), Qt::CaseInsensitive)
+        || type.contains(QStringLiteral("bulletin"), Qt::CaseInsensitive)
+        || params.contains(QStringLiteral("notification"))
+        || params.contains(QStringLiteral("messageBody"))
+        || params.contains(QStringLiteral("smsBody"))) {
+        QVariantMap n = params.value(QStringLiteral("notification")).toMap();
+        if (n.isEmpty())
+            n = params;
+        const QString app = n.value(QStringLiteral("appName"),
+                                    n.value(QStringLiteral("applicationName"),
+                                            n.value(QStringLiteral("bundleDisplayName"))))
+                                .toString();
+        const QString title = n.value(QStringLiteral("title"),
+                                      n.value(QStringLiteral("subtitle"),
+                                              n.value(QStringLiteral("sender"))))
+                                  .toString();
+        const QString body = n.value(QStringLiteral("body"),
+                                     n.value(QStringLiteral("message"),
+                                             n.value(QStringLiteral("messageBody"),
+                                                     n.value(QStringLiteral("text")))))
+                                 .toString();
+        if (!app.isEmpty() || !title.isEmpty() || !body.isEmpty())
+            emit notificationInfo(app, title, body);
+        return;
+    }
+
     if (type.contains(QStringLiteral("telephon"), Qt::CaseInsensitive)
         || type.contains(QStringLiteral("call"), Qt::CaseInsensitive)
         || params.contains(QStringLiteral("callState"))
@@ -1336,6 +1364,9 @@ bool AirPlayServer::sendHardKey(const QString &key, bool down)
         media = 5;
     else if (k == QLatin1String("back"))
         media = 6;
+    else if (k == QLatin1String("siri") || k == QLatin1String("voice")
+             || k == QLatin1String("voice_command"))
+        media = 7;
 
     if (media != 0) {
         const bool ok = sendHidReport(QStringLiteral("2a2a2a2c"),
@@ -1530,7 +1561,7 @@ QByteArray AirPlayServer::buildInfoPlist() const
         "05010908a1010509090115002501750195018102050c0a23020a2402950281029505810105010901a100"
         "093009311581257f750895028102c009381581257f750895018106c0");
     const QByteArray mediaDesc = QByteArray::fromHex(
-        "050c0901a10115002506050c0a00000ab0000ab1000acd000ab5000ab6000a9e02750895018100c0");
+        "050c0901a10115002507050c0a00000ab0000ab1000acd000ab5000ab6000a9e020acf00750895018100c0");
     const QByteArray telDesc = QByteArray::fromHex(
         "050b0907a10115002511050b0900092009210926092f09b009b109b209b309b409b509b609b709b809b909ba"
         "09bb0507092a750895018100c0");

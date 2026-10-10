@@ -11,8 +11,12 @@ Window {
     color: "#000000"
 
     property bool lockActive: false
+    readonly property bool projectionFullscreen: (stage.currentId === "carplay" && CarPlaySession.hasVideo)
+        || (stage.currentId === "androidauto" && AndroidAutoSession.hasVideo)
     readonly property bool lockBlocked: MediaSession.playing
         || RadioSession.playing
+        || PodcastSession.playing
+        || StreamSession.playing
         || DlnaRenderer.playing
         || NavSession.active
         || CarPlaySession.running
@@ -130,6 +134,10 @@ Window {
         z: 0
         property real volumeBeforeMute: 0.5
         readonly property bool carPlayActive: CarPlaySession.running
+        readonly property bool androidAutoActive: AndroidAutoSession.running
+        readonly property bool projectionActive: carPlayActive || androidAutoActive
+        readonly property bool streamActive: StreamSession.playing
+        readonly property bool podcastActive: PodcastSession.playing
         readonly property bool radioActive: RadioSession.playing
 
         function toggleMute() {
@@ -158,30 +166,59 @@ Window {
             CallSession.hangup()
         }
 
-        function pulseCarPlay(key, down) {
-            if (!carPlayActive)
-                return false
-            CarPlaySession.sendHardKey(key, down)
-            return true
+        function pulseProjection(key, down) {
+            if (carPlayActive) {
+                CarPlaySession.sendHardKey(key, down)
+                return true
+            }
+            if (androidAutoActive) {
+                AndroidAutoSession.sendHardKey(key, down)
+                return true
+            }
+            return false
+        }
+
+        function triggerVoice() {
+            if (carPlayActive) {
+                CarPlaySession.sendHardKey("siri", true)
+                CarPlaySession.sendHardKey("siri", false)
+                return true
+            }
+            if (androidAutoActive) {
+                AndroidAutoSession.sendHardKey("voice", true)
+                AndroidAutoSession.sendHardKey("voice", false)
+                return true
+            }
+            return false
         }
 
         function mediaToggle() {
-            if (pulseCarPlay("playpause", true)) {
-                pulseCarPlay("playpause", false)
+            if (pulseProjection("playpause", true)) {
+                pulseProjection("playpause", false)
                 return
             }
-            if (radioActive)
+            if (streamActive)
+                StreamSession.toggle()
+            else if (podcastActive)
+                PodcastSession.toggle()
+            else if (radioActive)
                 RadioSession.toggle()
             else
                 MediaSession.toggle()
         }
 
         function mediaPlay() {
-            if (pulseCarPlay("play", true)) {
-                pulseCarPlay("play", false)
+            if (pulseProjection("play", true)) {
+                pulseProjection("play", false)
                 return
             }
-            if (radioActive) {
+            if (streamActive) {
+                if (!StreamSession.playing)
+                    StreamSession.toggle()
+            } else if (podcastActive) {
+                if (!PodcastSession.playing)
+                    PodcastSession.toggle()
+            } else if (radioActive) {
                 if (!RadioSession.playing)
                     RadioSession.toggle()
             } else {
@@ -190,47 +227,65 @@ Window {
         }
 
         function mediaPause() {
-            if (pulseCarPlay("pause", true)) {
-                pulseCarPlay("pause", false)
+            if (pulseProjection("pause", true)) {
+                pulseProjection("pause", false)
                 return
             }
-            if (radioActive)
+            if (streamActive)
+                StreamSession.stop()
+            else if (podcastActive)
+                PodcastSession.stop()
+            else if (radioActive)
                 RadioSession.stop()
             else
                 MediaSession.pause()
         }
 
         function mediaNext() {
-            if (pulseCarPlay("next", true)) {
-                pulseCarPlay("next", false)
+            if (pulseProjection("next", true)) {
+                pulseProjection("next", false)
                 return
             }
-            if (radioActive)
+            if (streamActive)
+                StreamSession.next()
+            else if (podcastActive)
+                PodcastSession.next()
+            else if (radioActive)
                 RadioSession.next()
             else
                 MediaSession.next()
         }
 
         function mediaPrev() {
-            if (pulseCarPlay("prev", true)) {
-                pulseCarPlay("prev", false)
+            if (pulseProjection("prev", true)) {
+                pulseProjection("prev", false)
                 return
             }
-            if (radioActive)
+            if (streamActive)
+                StreamSession.previous()
+            else if (podcastActive)
+                PodcastSession.previous()
+            else if (radioActive)
                 RadioSession.previous()
             else
                 MediaSession.previous()
         }
 
         function cycleMode() {
-            if (carPlayActive)
+            if (projectionActive)
                 return
-            if (radioActive) {
+            if (streamActive) {
+                StreamSession.stop()
+                PodcastSession.toggle()
+            } else if (podcastActive) {
+                PodcastSession.stop()
+                RadioSession.toggle()
+            } else if (radioActive) {
                 RadioSession.stop()
                 MediaSession.play()
             } else {
                 MediaSession.pause()
-                RadioSession.toggle()
+                StreamSession.toggle()
             }
         }
 
@@ -293,47 +348,52 @@ Window {
                 event.accepted = true
                 return
             }
-            if (carPlayActive && (event.key === Qt.Key_Escape || event.key === Qt.Key_Home || event.key === Qt.Key_Back)) {
-                CarPlaySession.sendHardKey("home", true)
+            if (event.key === Qt.Key_VoiceDial || event.key === Qt.Key_F2) {
+                triggerVoice()
+                event.accepted = true
+                return
+            }
+            if (projectionActive && (event.key === Qt.Key_Escape || event.key === Qt.Key_Home || event.key === Qt.Key_Back)) {
+                pulseProjection("home", true)
                 event.accepted = true
                 return
             }
             if (event.key === Qt.Key_MediaTogglePlayPause
-                    || (carPlayActive && event.key === Qt.Key_Space)) {
-                if (carPlayActive)
-                    CarPlaySession.sendHardKey("playpause", true)
+                    || (projectionActive && event.key === Qt.Key_Space)) {
+                if (projectionActive)
+                    pulseProjection("playpause", true)
                 else
                     mediaToggle()
                 event.accepted = true
                 return
             }
             if (event.key === Qt.Key_MediaPlay) {
-                if (carPlayActive)
-                    CarPlaySession.sendHardKey("play", true)
+                if (projectionActive)
+                    pulseProjection("play", true)
                 else
                     mediaPlay()
                 event.accepted = true
                 return
             }
             if (event.key === Qt.Key_MediaPause) {
-                if (carPlayActive)
-                    CarPlaySession.sendHardKey("pause", true)
+                if (projectionActive)
+                    pulseProjection("pause", true)
                 else
                     mediaPause()
                 event.accepted = true
                 return
             }
             if (event.key === Qt.Key_MediaNext) {
-                if (carPlayActive)
-                    CarPlaySession.sendHardKey("next", true)
+                if (projectionActive)
+                    pulseProjection("next", true)
                 else
                     mediaNext()
                 event.accepted = true
                 return
             }
             if (event.key === Qt.Key_MediaPrevious) {
-                if (carPlayActive)
-                    CarPlaySession.sendHardKey("prev", true)
+                if (projectionActive)
+                    pulseProjection("prev", true)
                 else
                     mediaPrev()
                 event.accepted = true
@@ -341,7 +401,7 @@ Window {
             }
         }
         Keys.onReleased: function (event) {
-            if (!carPlayActive)
+            if (!projectionActive)
                 return
             let key = ""
             if (event.key === Qt.Key_MediaTogglePlayPause || event.key === Qt.Key_Space)
@@ -354,8 +414,10 @@ Window {
                 key = "next"
             else if (event.key === Qt.Key_MediaPrevious)
                 key = "prev"
+            else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Home || event.key === Qt.Key_Back)
+                key = "home"
             if (key.length > 0) {
-                CarPlaySession.sendHardKey(key, false)
+                pulseProjection(key, false)
                 event.accepted = true
             }
         }
@@ -368,7 +430,7 @@ Window {
         anchors.right: parent.right
         height: statusBar.barH
         z: 5
-        visible: !(stage.currentId === "carplay" && CarPlaySession.hasVideo) && !CameraService.reverseActive
+        visible: !window.projectionFullscreen && !CameraService.reverseActive
         darkContent: stage.opened
         running: stage.background
         runningAll: stage.running
@@ -494,7 +556,7 @@ Window {
     }
 
     Item {
-        anchors.top: (stage.currentId === "carplay" && CarPlaySession.hasVideo) ? parent.top : appTray.bottom
+        anchors.top: window.projectionFullscreen ? parent.top : appTray.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -536,18 +598,77 @@ Window {
         color: "#000000"
         opacity: (1 - SystemState.brightness) * 0.55
         enabled: false
-        visible: opacity > 0.001 && !(stage.currentId === "carplay" && CarPlaySession.hasVideo) && !CameraService.reverseActive
+        visible: opacity > 0.001 && !window.projectionFullscreen && !CameraService.reverseActive
         z: 1
     }
 
+    ClusterNav {
+        z: 7
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.margins: 16
+        anchors.bottomMargin: 48
+        visible: NavSession.active && !CameraService.reverseActive && !window.projectionFullscreen && !lockActive && !bootSplash.visible
+    }
+
     Item {
+        id: reverseHud
         z: 80
         anchors.fill: parent
         visible: CameraService.reverseActive
 
+        function parkValue(i) {
+            if (i === 0) return VehicleState.parkRl
+            if (i === 1) return VehicleState.parkRcl
+            if (i === 2) return VehicleState.parkRcr
+            return VehicleState.parkRr
+        }
+        function parkLabel(i) {
+            if (i === 0) return "左外"
+            if (i === 1) return "左内"
+            if (i === 2) return "右内"
+            return "右外"
+        }
+        function parkColor(v) {
+            if (v >= 0.72) return "#FF453A"
+            if (v >= 0.42) return "#FFD60A"
+            if (v >= 0.18) return "#30D158"
+            return "#33FFFFFF"
+        }
+        function parkBars(v) {
+            if (v >= 0.72) return 4
+            if (v >= 0.48) return 3
+            if (v >= 0.28) return 2
+            if (v >= 0.12) return 1
+            return 0
+        }
+
         CameraVideoItem {
             anchors.fill: parent
             session: CameraService
+        }
+
+        Canvas {
+            anchors.fill: parent
+            opacity: 0.55
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.reset()
+                const w = width
+                const h = height
+                ctx.strokeStyle = "#99FFFFFF"
+                ctx.lineWidth = 2
+                ctx.beginPath()
+                ctx.moveTo(w * 0.28, h * 0.42)
+                ctx.quadraticCurveTo(w * 0.5, h * 0.78, w * 0.72, h * 0.42)
+                ctx.stroke()
+                ctx.beginPath()
+                ctx.moveTo(w * 0.34, h * 0.48)
+                ctx.quadraticCurveTo(w * 0.5, h * 0.72, w * 0.66, h * 0.48)
+                ctx.stroke()
+            }
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
         }
 
         Rectangle {
@@ -561,7 +682,7 @@ Window {
             Text {
                 id: badge
                 anchors.centerIn: parent
-                text: "倒车影像"
+                text: VehicleState.parkAlert ? "注意障碍" : "倒车影像"
                 color: "#FFFFFF"
                 font.pixelSize: 16
                 font.bold: true
@@ -592,10 +713,55 @@ Window {
             }
         }
 
+        Row {
+            id: radarRow
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 44
+            spacing: 10
+            Repeater {
+                model: 4
+                delegate: Column {
+                    required property int index
+                    readonly property real level: reverseHud.parkValue(index)
+                    spacing: 6
+                    width: 52
+                    Item {
+                        width: parent.width
+                        height: 72
+                        Column {
+                            anchors.bottom: parent.bottom
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            spacing: 3
+                            Repeater {
+                                model: 4
+                                Rectangle {
+                                    required property int index
+                                    width: 40 - index * 4
+                                    height: 12
+                                    radius: 3
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    readonly property int active: reverseHud.parkBars(level)
+                                    opacity: (4 - index) <= active ? 1 : 0.22
+                                    color: (4 - index) <= active ? reverseHud.parkColor(level) : "#33FFFFFF"
+                                }
+                            }
+                        }
+                    }
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: reverseHud.parkLabel(index)
+                        color: "#CCFFFFFF"
+                        font.pixelSize: 11
+                    }
+                }
+            }
+        }
+
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: 18
+            anchors.bottomMargin: 14
             text: CameraService.demoMode ? "演示画面 · 车辆页切 R 档可测" : CameraService.status
             color: "#CCFFFFFF"
             font.pixelSize: 14
@@ -604,7 +770,7 @@ Window {
 
     Item {
         z: 6
-        visible: !vkb.shown && !(stage.currentId === "carplay" && CarPlaySession.hasVideo) && !CameraService.reverseActive
+        visible: !vkb.shown && !window.projectionFullscreen && !CameraService.reverseActive
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 3
@@ -641,7 +807,7 @@ Window {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        allowed: !(stage.currentId === "carplay" && CarPlaySession.hasVideo) && !CameraService.reverseActive
+        allowed: !window.projectionFullscreen && !CameraService.reverseActive
     }
 
     Timer {

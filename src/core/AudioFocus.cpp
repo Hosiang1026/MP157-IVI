@@ -15,14 +15,29 @@ bool AudioFocus::ducked() const
     return m_ducked;
 }
 
-int AudioFocus::mediaPriority() const
-{
-    return 1;
-}
-
 int AudioFocus::callPriority() const
 {
     return 10;
+}
+
+int AudioFocus::projectionPriority() const
+{
+    return 8;
+}
+
+int AudioFocus::radioPriority() const
+{
+    return 3;
+}
+
+int AudioFocus::mediaPriority() const
+{
+    return 2;
+}
+
+int AudioFocus::btPriority() const
+{
+    return 1;
 }
 
 void AudioFocus::request(const QString &client, int priority)

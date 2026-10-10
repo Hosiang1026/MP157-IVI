@@ -135,24 +135,11 @@ Item {
             anchors.fill: parent
             spacing: 12
 
-            Row {
-                width: parent.width
-                spacing: 16
-                Text {
-                    text: "视频"
-                    color: SystemState.ink
-                    font.pixelSize: 28
-                    font.bold: true
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-                Item { width: 8; height: 1 }
-                IosSegmented {
-                    width: 200
-                    anchors.verticalCenter: parent.verticalCenter
-                    labels: ["本地", "无线投屏"]
-                    currentIndex: root.tab === "wlan" ? 1 : 0
-                    onActivated: function(i) { root.switchTab(i === 1 ? "wlan" : "local") }
-                }
+            IosSegmented {
+                width: 200
+                labels: ["本地", "无线投屏"]
+                currentIndex: root.tab === "wlan" ? 1 : 0
+                onActivated: function(i) { root.switchTab(i === 1 ? "wlan" : "local") }
             }
 
             Item {

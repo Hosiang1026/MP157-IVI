@@ -50,6 +50,11 @@ class VehicleState : public QObject {
     Q_PROPERTY(QString alertColor READ alertColor NOTIFY changed)
     Q_PROPERTY(int alertCount READ alertCount NOTIFY changed)
     Q_PROPERTY(int alertIndex READ alertIndex NOTIFY changed)
+    Q_PROPERTY(qreal parkRl READ parkRl NOTIFY changed)
+    Q_PROPERTY(qreal parkRcl READ parkRcl NOTIFY changed)
+    Q_PROPERTY(qreal parkRcr READ parkRcr NOTIFY changed)
+    Q_PROPERTY(qreal parkRr READ parkRr NOTIFY changed)
+    Q_PROPERTY(bool parkAlert READ parkAlert NOTIFY changed)
 public:
     static constexpr int kBatteryKeepDays = 20;
     static constexpr int kBatteryHistoryMax = 20 * 24; // 20天×每小时1点
@@ -106,6 +111,11 @@ public:
     QString alertColor() const;
     int alertCount() const;
     int alertIndex() const;
+    qreal parkRl() const;
+    qreal parkRcl() const;
+    qreal parkRcr() const;
+    qreal parkRr() const;
+    bool parkAlert() const;
 
     Q_INVOKABLE void setGear(const QString &gear);
     Q_INVOKABLE void toggleLocked();
@@ -170,6 +180,11 @@ private:
     bool m_hoodOpen = false;
     bool m_trunkOpen = false;
     int m_alertIndex = 0;
+    qreal m_parkRl = 0;
+    qreal m_parkRcl = 0;
+    qreal m_parkRcr = 0;
+    qreal m_parkRr = 0;
+    int m_parkTick = 0;
     QTimer m_timer;
     QTimer m_alertTimer;
 };

@@ -47,6 +47,10 @@ Canvas {
             paintStore(ctx, gs)
         else if (appId === "radio")
             paintRadio(ctx, gs)
+        else if (appId === "podcast")
+            paintPodcast(ctx, gs)
+        else if (appId === "stream")
+            paintStream(ctx, gs)
         else if (appId === "video")
             paintVideo(ctx, gs)
         else if (appId === "map")
@@ -259,6 +263,45 @@ Canvas {
         ctx.beginPath()
         ctx.arc(cx, s * 0.14, s * 0.045, 0, Math.PI * 2)
         ctx.fill()
+    }
+
+    function paintPodcast(ctx, s) {
+        ctx.beginPath()
+        ctx.arc(s * 0.50, s * 0.38, s * 0.14, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.beginPath()
+        ctx.moveTo(s * 0.36, s * 0.50)
+        ctx.quadraticCurveTo(s * 0.50, s * 0.72, s * 0.64, s * 0.50)
+        ctx.lineTo(s * 0.64, s * 0.78)
+        ctx.quadraticCurveTo(s * 0.50, s * 0.88, s * 0.36, s * 0.78)
+        ctx.closePath()
+        ctx.fill()
+        ctx.lineWidth = Math.max(1.2, s * 0.05)
+        ctx.beginPath()
+        ctx.arc(s * 0.50, s * 0.38, s * 0.26, 0.35, Math.PI - 0.35)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.arc(s * 0.50, s * 0.38, s * 0.38, 0.45, Math.PI - 0.45)
+        ctx.stroke()
+    }
+
+    function paintStream(ctx, s) {
+        ctx.lineWidth = Math.max(1.4, s * 0.055)
+        for (let i = 0; i < 5; ++i) {
+            const x = s * (0.22 + i * 0.14)
+            const h = s * (0.18 + ((i % 3) + 1) * 0.12)
+            ctx.beginPath()
+            ctx.moveTo(x, s * 0.72)
+            ctx.lineTo(x, s * 0.72 - h)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.arc(x, s * 0.72 - h, s * 0.035, 0, Math.PI * 2)
+            ctx.fill()
+        }
+        ctx.beginPath()
+        ctx.moveTo(s * 0.18, s * 0.82)
+        ctx.lineTo(s * 0.82, s * 0.82)
+        ctx.stroke()
     }
 
     function paintAndroidAuto(ctx, s) {

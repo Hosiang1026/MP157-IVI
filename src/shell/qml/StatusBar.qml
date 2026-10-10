@@ -24,6 +24,7 @@ Item {
     readonly property bool raisedInk: !darkContent && WallpaperStore.darkBackdrop
     readonly property bool callLive: CallSession.active || CallSession.ringing
     readonly property bool navLive: NavSession.active
+    readonly property bool notifyLive: NotificationSession.statusBarEnabled && NotificationSession.active
     readonly property bool vehicleAlert: VehicleState.alertCount > 0
     readonly property bool muted: SystemState.volume <= 0.001
     readonly property int batteryPct: {
@@ -42,8 +43,14 @@ Item {
         }
         return false
     }
-    readonly property bool musicLive: MediaSession.playing && (musicAppOpen || MediaSession.source === "carplay")
-    readonly property string mode: callLive ? "call" : (navLive ? "nav" : (musicLive ? "music" : (vehicleAlert ? "alert" : "")))
+    readonly property bool localMusicLive: MediaSession.playing && (musicAppOpen || MediaSession.source === "carplay")
+    readonly property bool streamLive: StreamSession.playing
+    readonly property bool podcastLive: PodcastSession.playing
+    readonly property bool radioLive: RadioSession.playing
+    readonly property bool musicLive: localMusicLive || streamLive || podcastLive || radioLive
+    readonly property string mediaHubAppId: (streamLive || localMusicLive) ? "music"
+        : ((podcastLive || radioLive) ? "radio" : "music")
+    readonly property string mode: callLive ? "call" : (navLive ? "nav" : (musicLive ? "music" : (notifyLive ? "notify" : (vehicleAlert ? "alert" : ""))))
     function lyricLines() {
         const src = MediaSession.lyrics
         const out = []
@@ -61,6 +68,22 @@ Item {
     }
 
     readonly property string hubMusicText: {
+        if (streamLive) {
+            const t = (StreamSession.title || "").toString()
+            const a = (StreamSession.artist || "").toString()
+            if (t.length)
+                return a.length ? (t + " · " + a) : t
+            return "音流播放中"
+        }
+        if (podcastLive) {
+            const t = (PodcastSession.episodeTitle || "").toString()
+            const prefix = PodcastSession.library === "book" ? "听书" : "播客"
+            return t.length ? (prefix + " · " + t) : (prefix + "播放中")
+        }
+        if (radioLive) {
+            const t = (RadioSession.stationName || "").toString()
+            return t.length ? ("电台 · " + t) : "电台播放中"
+        }
         const lines = lyricLines()
         if (lines.length > 0) {
             const n = lines.length
@@ -422,7 +445,7 @@ Item {
             }
             MouseArea {
                 anchors.fill: parent
-                onClicked: root.openById("music")
+                onClicked: root.openById(root.mediaHubAppId)
             }
             Connections {
                 target: root
@@ -524,6 +547,37 @@ Item {
                             onClicked: root.endCall()
                         }
                     }
+                }
+            }
+        }
+
+        Item {
+            id: notifyRow
+            visible: root.mode === "notify"
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter: parent.verticalCenter
+            height: root.barH
+            readonly property real maxW: Math.max(40, root.width - leftRow.width - statusRight.width - 32)
+            width: Math.min(notifyLabel.implicitWidth, maxW)
+
+            Text {
+                id: notifyLabel
+                anchors.centerIn: parent
+                width: parent.width
+                text: NotificationSession.text
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+                color: root.ink
+                font.pixelSize: root.fontMain
+                font.weight: Font.DemiBold
+                style: root.raisedInk ? Text.Raised : Text.Normal
+                styleColor: "#4D000000"
+            }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {
+                    NotificationSession.dismiss()
+                    root.openById("phone")
                 }
             }
         }
