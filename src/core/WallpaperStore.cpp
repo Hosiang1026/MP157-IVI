@@ -12,16 +12,18 @@
 #include <QSettings>
 #include <QUrl>
 
-#ifdef Q_OS_WIN
-#include <windows.h>
-#include <commdlg.h>
-#endif
-
 namespace {
 
 QString fileUrl(const QString &path)
 {
     return QUrl::fromLocalFile(path).toString();
+}
+
+bool isImageSuffix(const QString &suffix)
+{
+    const QString s = suffix.toLower();
+    return s == QStringLiteral("jpg") || s == QStringLiteral("jpeg") || s == QStringLiteral("png")
+           || s == QStringLiteral("webp") || s == QStringLiteral("bmp") || s == QStringLiteral("gif");
 }
 
 }
@@ -66,22 +68,72 @@ void WallpaperStore::select(const QString &path)
     setCurrent(local);
 }
 
-void WallpaperStore::upload()
+QString WallpaperStore::picturesDir() const
 {
-#ifdef Q_OS_WIN
-    wchar_t buffer[MAX_PATH] = {};
-    OPENFILENAMEW dialog = {};
-    dialog.lStructSize = sizeof(dialog);
-    dialog.lpstrFilter = L"Image\0*.jpg;*.jpeg;*.png;*.webp;*.bmp\0";
-    dialog.lpstrFile = buffer;
-    dialog.nMaxFile = MAX_PATH;
-    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
-    if (!GetOpenFileNameW(&dialog))
-        return;
-    copyIn(QString::fromWCharArray(buffer));
-#else
-    return;
-#endif
+    return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("media/pictures"));
+}
+
+QVariantList WallpaperStore::pickableImages() const
+{
+    QVariantList list;
+    const QStringList roots = {
+        picturesDir(),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("media/inbox")),
+    };
+    QStringList filters = {
+        QStringLiteral("*.jpg"),  QStringLiteral("*.jpeg"), QStringLiteral("*.png"),
+        QStringLiteral("*.webp"), QStringLiteral("*.bmp"),  QStringLiteral("*.gif"),
+        QStringLiteral("*.JPG"),  QStringLiteral("*.JPEG"), QStringLiteral("*.PNG"),
+        QStringLiteral("*.WEBP"), QStringLiteral("*.BMP"),  QStringLiteral("*.GIF"),
+    };
+    for (const QString &root : roots) {
+        QDir dir(root);
+        if (!dir.exists())
+            continue;
+        const QFileInfoList files = dir.entryInfoList(filters, QDir::Files, QDir::Time);
+        for (const QFileInfo &info : files) {
+            if (!isImageSuffix(info.suffix()))
+                continue;
+            QVariantMap item;
+            item.insert(QStringLiteral("name"), info.fileName());
+            item.insert(QStringLiteral("path"), info.absoluteFilePath());
+            item.insert(QStringLiteral("url"), fileUrl(info.absoluteFilePath()));
+            list.push_back(item);
+        }
+    }
+    return list;
+}
+
+bool WallpaperStore::importFrom(const QString &path)
+{
+    const QString local = QUrl(path).isLocalFile() ? QUrl(path).toLocalFile() : path;
+    return copyIn(local);
+}
+
+bool WallpaperStore::removeCustom(const QString &path)
+{
+    const QString local = QUrl(path).isLocalFile() ? QUrl(path).toLocalFile() : path;
+    const QFileInfo info(local);
+    if (!info.exists() || !info.isFile())
+        return false;
+    const QString relative = QDir(m_userDir).relativeFilePath(info.absoluteFilePath());
+    if (relative.startsWith(QLatin1String("..")) || QFileInfo(relative).isAbsolute())
+        return false;
+    if (!QFile::remove(info.absoluteFilePath()))
+        return false;
+    const bool wasCurrent = m_current == fileUrl(info.absoluteFilePath());
+    reload();
+    if (wasCurrent) {
+        if (!m_items.isEmpty())
+            setCurrent(QUrl(m_items.first().toMap().value(QStringLiteral("path")).toString()).toLocalFile());
+        else {
+            m_current.clear();
+            QSettings().remove(QStringLiteral("wallpaper"));
+            emit currentChanged();
+            refreshBackdrop();
+        }
+    }
+    return true;
 }
 
 void WallpaperStore::reload()
@@ -105,7 +157,8 @@ void WallpaperStore::reload()
     }
 
     const QFileInfoList customFiles = QDir(m_userDir).entryInfoList(
-        {QStringLiteral("*.jpg"), QStringLiteral("*.jpeg"), QStringLiteral("*.png"), QStringLiteral("*.webp"), QStringLiteral("*.bmp")},
+        {QStringLiteral("*.jpg"), QStringLiteral("*.jpeg"), QStringLiteral("*.png"), QStringLiteral("*.webp"),
+         QStringLiteral("*.bmp"), QStringLiteral("*.gif")},
         QDir::Files, QDir::Time);
     int index = 1;
     for (const QFileInfo &info : customFiles) {
@@ -162,8 +215,7 @@ void WallpaperStore::refreshBackdrop()
 bool WallpaperStore::copyIn(const QString &sourcePath)
 {
     const QString suffix = QFileInfo(sourcePath).suffix().toLower();
-    if (suffix != QStringLiteral("jpg") && suffix != QStringLiteral("jpeg") && suffix != QStringLiteral("png")
-        && suffix != QStringLiteral("webp") && suffix != QStringLiteral("bmp"))
+    if (!isImageSuffix(suffix))
         return false;
     const QString dest = QDir(m_userDir).filePath(
         QStringLiteral("upload-%1.%2").arg(QDateTime::currentMSecsSinceEpoch()).arg(suffix));

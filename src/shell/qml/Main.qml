@@ -588,6 +588,8 @@ Window {
         Connections {
             target: CarPlaySession
             function onHostUiRequested() {
+                vkb.hide()
+                keyScope.forceActiveFocus()
                 stage.close()
             }
         }
@@ -608,7 +610,9 @@ Window {
         anchors.bottom: parent.bottom
         anchors.margins: 16
         anchors.bottomMargin: 48
-        visible: NavSession.active && !CameraService.reverseActive && !window.projectionFullscreen && !lockActive && !bootSplash.visible
+        visible: NavSession.active && stage.opened && stage.currentId === "map"
+                 && !CameraService.reverseActive && !window.projectionFullscreen
+                 && !lockActive && !bootSplash.visible
     }
 
     Item {
@@ -808,6 +812,8 @@ Window {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         allowed: !window.projectionFullscreen && !CameraService.reverseActive
+                 && !(CarPlaySession.running && stage.currentId === "carplay")
+                 && !(AndroidAutoSession.running && stage.currentId === "androidauto")
     }
 
     Timer {

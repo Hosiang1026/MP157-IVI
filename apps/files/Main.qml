@@ -104,50 +104,6 @@ Item {
                         }
                     }
 
-                    Item { width: 1; height: 6 }
-
-                    Text {
-                        text: "无线传文件"
-                        color: SystemState.secondary
-                        font.pixelSize: 13
-                    }
-
-                    Rectangle {
-                        width: parent.width
-                        height: FileBrowser.shareRunning ? 132 : 52
-                        radius: 10
-                        color: SystemState.fill
-                        Column {
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            spacing: 6
-                            Text {
-                                width: parent.width
-                                wrapMode: Text.WordWrap
-                                text: FileBrowser.shareRunning ? FileBrowser.shareUrl : FileBrowser.shareStatus
-                                color: FileBrowser.shareRunning ? SystemState.tint : SystemState.ink
-                                font.pixelSize: FileBrowser.shareRunning ? 15 : 14
-                                font.bold: FileBrowser.shareRunning
-                            }
-                            Text {
-                                width: parent.width
-                                wrapMode: Text.WordWrap
-                                visible: FileBrowser.shareRunning
-                                text: FileBrowser.shareStatus
-                                color: SystemState.secondary
-                                font.pixelSize: 12
-                            }
-                            Text {
-                                width: parent.width
-                                wrapMode: Text.WordWrap
-                                visible: FileBrowser.lastEvent.length > 0
-                                text: FileBrowser.lastEvent
-                                color: SystemState.success
-                                font.pixelSize: 12
-                            }
-                        }
-                    }
-
                 }
             }
         }
@@ -171,6 +127,7 @@ Item {
                     spacing: 10
 
                     IosPressable {
+                        id: backBtn
                         width: 44
                         height: 36
                         visible: FileBrowser.relativePath.length > 0
@@ -186,13 +143,27 @@ Item {
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        width: parent.width - (FileBrowser.relativePath.length > 0 ? 200 : 152)
+                        width: Math.max(80, parent.width
+                                        - (backBtn.visible ? 54 : 0)
+                                        - (FileBrowser.shareRunning ? Math.min(260, shareUrlLabel.implicitWidth) + 10 : 0)
+                                        - 80 - 10 - 56)
                         elide: Text.ElideMiddle
                         text: FileBrowser.rootName
                               + (FileBrowser.relativePath.length ? (" / " + FileBrowser.relativePath) : "")
                         color: SystemState.ink
                         font.pixelSize: 17
                         font.bold: true
+                    }
+
+                    Text {
+                        id: shareUrlLabel
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: FileBrowser.shareRunning
+                        width: visible ? Math.min(260, implicitWidth) : 0
+                        elide: Text.ElideMiddle
+                        text: FileBrowser.shareUrl
+                        color: SystemState.tint
+                        font.pixelSize: 13
                     }
 
                     IosPressable {

@@ -569,235 +569,257 @@ Item {
         }
 
         Item {
+            id: playerPage
             anchors.fill: parent
             visible: root.page === "player"
 
-            Column {
-                anchors.fill: parent
-                spacing: 0
+            Row {
+                id: playerHeader
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: 40
+                spacing: 8
 
-                Row {
-                    width: parent.width
-                    height: 44
-                    spacing: 8
-
-                    IosPressable {
-                        width: 44
-                        height: 44
-                        IosIcon {
-                            anchors.centerIn: parent
-                            width: 22
-                            height: 22
-                            name: "back"
-                            ink: SystemState.tint
-                        }
-                        onClicked: root.goBack()
+                IosPressable {
+                    width: 40
+                    height: 40
+                    IosIcon {
+                        anchors.centerIn: parent
+                        width: 22
+                        height: 22
+                        name: "back"
+                        ink: SystemState.tint
                     }
-                    Item { width: parent.width - 160; height: 1 }
-                    IosPressable {
-                        width: 72
-                        height: 44
-                        anchors.verticalCenter: parent.verticalCenter
-                        Text {
-                            anchors.centerIn: parent
-                            text: root.showLyrics ? "封面" : "歌词"
-                            color: SystemState.tint
-                            font.pixelSize: 15
-                        }
-                        onClicked: root.showLyrics = !root.showLyrics
-                    }
+                    onClicked: root.goBack()
                 }
+                Item { width: parent.width - 140; height: 1 }
+                IosPressable {
+                    width: 64
+                    height: 40
+                    anchors.verticalCenter: parent.verticalCenter
+                    Text {
+                        anchors.centerIn: parent
+                        text: root.showLyrics ? "封面" : "歌词"
+                        color: SystemState.tint
+                        font.pixelSize: 15
+                    }
+                    onClicked: root.showLyrics = !root.showLyrics
+                }
+            }
+
+            Item {
+                id: playerBody
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: playerHeader.bottom
+                anchors.bottom: parent.bottom
+                anchors.topMargin: 4
 
                 Item {
-                    width: parent.width
-                    height: parent.height - 44
+                    anchors.fill: parent
+                    visible: !root.showLyrics
+                    readonly property int coverSize: Math.max(
+                        96,
+                        Math.min(180, Math.floor(Math.min(width * 0.42, height - 200)))
+                    )
 
-                    Column {
+                    Rectangle {
+                        id: coverArt
                         anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 22
-                        width: Math.min(parent.width, 420)
-                        visible: !root.showLyrics
-
-                        Rectangle {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            width: Math.min(260, parent.width * 0.62)
-                            height: width
-                            radius: 12
-                            color: MediaSession.coverColor
-                            IosIcon {
-                                anchors.centerIn: parent
-                                width: Math.round(parent.width * 0.28)
-                                height: Math.round(parent.width * 0.28)
-                                name: MediaSession.playing ? "pause" : "play"
-                                ink: "#FFFFFF"
-                            }
-                            IosPressable {
-                                anchors.fill: parent
-                                onClicked: root.showLyrics = true
-                            }
-                        }
-
-                        Column {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            spacing: 6
-                            width: parent.width
-                            Text {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                width: parent.width
-                                horizontalAlignment: Text.AlignHCenter
-                                elide: Text.ElideRight
-                                text: MediaSession.title
-                                color: SystemState.ink
-                                font.pixelSize: 24
-                                font.bold: true
-                            }
-                            Text {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                width: parent.width
-                                horizontalAlignment: Text.AlignHCenter
-                                elide: Text.ElideRight
-                                text: MediaSession.artist
-                                color: SystemState.secondary
-                                font.pixelSize: 15
-                            }
-                        }
-
-                        Column {
-                            width: parent.width
-                            spacing: 4
-                            Slider {
-                                id: seek
-                                width: parent.width
-                                height: 24
-                                from: 0
-                                to: Math.max(1, MediaSession.duration)
-                                onMoved: MediaSession.seek(Math.round(value))
-                                Component.onCompleted: value = MediaSession.position
-                                background: Rectangle {
-                                    x: seek.leftPadding
-                                    y: seek.topPadding + seek.availableHeight / 2 - height / 2
-                                    implicitHeight: 4
-                                    width: seek.availableWidth
-                                    height: 4
-                                    radius: 2
-                                    color: SystemState.fill
-                                    Rectangle {
-                                        width: seek.visualPosition * parent.width
-                                        height: parent.height
-                                        radius: 2
-                                        color: SystemState.tint
-                                    }
-                                }
-                                handle: Rectangle {
-                                    x: seek.leftPadding + seek.visualPosition * (seek.availableWidth - width)
-                                    y: seek.topPadding + seek.availableHeight / 2 - height / 2
-                                    width: 20
-                                    height: 20
-                                    radius: 10
-                                    color: "#FFFFFF"
-                                    border.color: SystemState.separator
-                                    border.width: 0.5
-                                }
-                            }
-                            Row {
-                                width: parent.width
-                                Text { text: root.mmss(MediaSession.position); color: SystemState.secondary; font.pixelSize: 11 }
-                                Item { width: parent.width - 80; height: 1 }
-                                Text { text: root.mmss(MediaSession.duration); color: SystemState.secondary; font.pixelSize: 11 }
-                            }
-                        }
-
-                        Row {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            spacing: 28
-
-                            IosPressable {
-                                width: 44
-                                height: 44
-                                IosIcon {
-                                    anchors.centerIn: parent
-                                    width: 22
-                                    height: 22
-                                    name: root.modeIconName
-                                    ink: SystemState.ink
-                                }
-                                onClicked: MediaSession.cyclePlayMode()
-                            }
-                            IosPressable {
-                                width: 48
-                                height: 48
-                                IosIcon {
-                                    anchors.centerIn: parent
-                                    width: 26
-                                    height: 26
-                                    name: "prev"
-                                    ink: SystemState.ink
-                                }
-                                onClicked: MediaSession.previous()
-                            }
-                            IosPressable {
-                                width: 64
-                                height: 64
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: 32
-                                    color: SystemState.tint
-                                }
-                                IosIcon {
-                                    anchors.centerIn: parent
-                                    width: 28
-                                    height: 28
-                                    name: MediaSession.playing ? "pause" : "play"
-                                    ink: "#FFFFFF"
-                                }
-                                onClicked: MediaSession.toggle()
-                            }
-                            IosPressable {
-                                width: 48
-                                height: 48
-                                IosIcon {
-                                    anchors.centerIn: parent
-                                    width: 26
-                                    height: 26
-                                    name: "next"
-                                    ink: SystemState.ink
-                                }
-                                onClicked: MediaSession.next()
-                            }
-                            Item { width: 44; height: 44 }
-                        }
-                    }
-
-                    ListView {
-                        id: lyricView
-                        anchors.fill: parent
-                        anchors.leftMargin: 24
-                        anchors.rightMargin: 24
-                        visible: root.showLyrics
-                        clip: true
-                        spacing: 18
-                        model: root.lyricLines
-                        preferredHighlightBegin: height / 2 - 20
-                        preferredHighlightEnd: height / 2 + 20
-                        highlightRangeMode: ListView.StrictlyEnforceRange
-                        currentIndex: root.lyricIndex
-                        highlightMoveDuration: 220
-                        delegate: Text {
-                            required property string modelData
-                            required property int index
-                            width: lyricView.width
-                            horizontalAlignment: Text.AlignHCenter
-                            text: modelData
-                            color: index === root.lyricIndex ? SystemState.ink : SystemState.secondary
-                            font.pixelSize: index === root.lyricIndex ? 24 : 17
-                            font.bold: index === root.lyricIndex
-                            opacity: index === root.lyricIndex ? 1.0 : 0.45
+                        anchors.top: parent.top
+                        anchors.topMargin: 2
+                        width: parent.coverSize
+                        height: parent.coverSize
+                        radius: 12
+                        color: MediaSession.coverColor
+                        IosIcon {
+                            anchors.centerIn: parent
+                            width: Math.round(parent.width * 0.28)
+                            height: Math.round(parent.width * 0.28)
+                            name: MediaSession.playing ? "pause" : "play"
+                            ink: "#FFFFFF"
                         }
                         IosPressable {
                             anchors.fill: parent
-                            onClicked: root.showLyrics = false
+                            onClicked: root.showLyrics = true
                         }
+                    }
+
+                    Column {
+                        id: metaCol
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: coverArt.bottom
+                        anchors.topMargin: 10
+                        spacing: 2
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideRight
+                            text: MediaSession.title
+                            color: SystemState.ink
+                            font.pixelSize: 20
+                            font.bold: true
+                        }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideRight
+                            text: MediaSession.artist
+                            color: SystemState.secondary
+                            font.pixelSize: 13
+                        }
+                    }
+
+                    Column {
+                        id: seekCol
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: transportRow.top
+                        anchors.bottomMargin: 6
+                        width: Math.min(parent.width, 420)
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: 2
+                        Slider {
+                            id: seek
+                            width: parent.width
+                            height: 22
+                            from: 0
+                            to: Math.max(1, MediaSession.duration)
+                            onMoved: MediaSession.seek(Math.round(value))
+                            Component.onCompleted: value = MediaSession.position
+                            background: Rectangle {
+                                x: seek.leftPadding
+                                y: seek.topPadding + seek.availableHeight / 2 - height / 2
+                                implicitHeight: 4
+                                width: seek.availableWidth
+                                height: 4
+                                radius: 2
+                                color: SystemState.fill
+                                Rectangle {
+                                    width: seek.visualPosition * parent.width
+                                    height: parent.height
+                                    radius: 2
+                                    color: SystemState.tint
+                                }
+                            }
+                            handle: Rectangle {
+                                x: seek.leftPadding + seek.visualPosition * (seek.availableWidth - width)
+                                y: seek.topPadding + seek.availableHeight / 2 - height / 2
+                                width: 18
+                                height: 18
+                                radius: 9
+                                color: "#FFFFFF"
+                                border.color: SystemState.separator
+                                border.width: 0.5
+                            }
+                        }
+                        Row {
+                            width: parent.width
+                            Text { text: root.mmss(MediaSession.position); color: SystemState.secondary; font.pixelSize: 11 }
+                            Item { width: parent.width - 80; height: 1 }
+                            Text { text: root.mmss(MediaSession.duration); color: SystemState.secondary; font.pixelSize: 11 }
+                        }
+                    }
+
+                    Row {
+                        id: transportRow
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 2
+                        spacing: 22
+
+                        IosPressable {
+                            width: 40
+                            height: 40
+                            anchors.verticalCenter: parent.verticalCenter
+                            IosIcon {
+                                anchors.centerIn: parent
+                                width: 20
+                                height: 20
+                                name: root.modeIconName
+                                ink: SystemState.ink
+                            }
+                            onClicked: MediaSession.cyclePlayMode()
+                        }
+                        IosPressable {
+                            width: 44
+                            height: 44
+                            anchors.verticalCenter: parent.verticalCenter
+                            IosIcon {
+                                anchors.centerIn: parent
+                                width: 24
+                                height: 24
+                                name: "prev"
+                                ink: SystemState.ink
+                            }
+                            onClicked: MediaSession.previous()
+                        }
+                        IosPressable {
+                            width: 56
+                            height: 56
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 28
+                                color: SystemState.tint
+                            }
+                            IosIcon {
+                                anchors.centerIn: parent
+                                width: 26
+                                height: 26
+                                name: MediaSession.playing ? "pause" : "play"
+                                ink: "#FFFFFF"
+                            }
+                            onClicked: MediaSession.toggle()
+                        }
+                        IosPressable {
+                            width: 44
+                            height: 44
+                            anchors.verticalCenter: parent.verticalCenter
+                            IosIcon {
+                                anchors.centerIn: parent
+                                width: 24
+                                height: 24
+                                name: "next"
+                                ink: SystemState.ink
+                            }
+                            onClicked: MediaSession.next()
+                        }
+                        Item { width: 40; height: 40 }
+                    }
+                }
+
+                ListView {
+                    id: lyricView
+                    anchors.fill: parent
+                    anchors.leftMargin: 24
+                    anchors.rightMargin: 24
+                    visible: root.showLyrics
+                    clip: true
+                    spacing: 14
+                    model: root.lyricLines
+                    preferredHighlightBegin: height / 2 - 20
+                    preferredHighlightEnd: height / 2 + 20
+                    highlightRangeMode: ListView.StrictlyEnforceRange
+                    currentIndex: root.lyricIndex
+                    highlightMoveDuration: 220
+                    delegate: Text {
+                        required property string modelData
+                        required property int index
+                        width: lyricView.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: modelData
+                        color: index === root.lyricIndex ? SystemState.ink : SystemState.secondary
+                        font.pixelSize: index === root.lyricIndex ? 22 : 16
+                        font.bold: index === root.lyricIndex
+                        opacity: index === root.lyricIndex ? 1.0 : 0.45
+                    }
+                    IosPressable {
+                        anchors.fill: parent
+                        onClicked: root.showLyrics = false
                     }
                 }
             }

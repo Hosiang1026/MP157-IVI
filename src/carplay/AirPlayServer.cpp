@@ -2297,10 +2297,17 @@ void AirPlayServer::onScreenConfig(const QByteArray &avcC)
         if (dump.open(QIODevice::WriteOnly | QIODevice::Truncate))
             dump.write(avcC);
     }
-    if (!decoder->configure(avcC))
+    if (!decoder->configure(avcC)) {
         emit log(QStringLiteral("h264 configure failed %1").arg(decoder->lastError()));
-    else
-        emit log(QStringLiteral("h264 configured %1 %2").arg(avcC.size()).arg(decoder->lastError()));
+    } else {
+        const QString err = decoder->lastError();
+        if (!err.startsWith(QLatin1String("unchanged"))) {
+            QMutexLocker lock(&m_decodeMutex);
+            m_decodeQueue.clear();
+            m_waitIdr.store(true);
+        }
+        emit log(QStringLiteral("h264 configured %1 %2").arg(avcC.size()).arg(err));
+    }
 #else
     Q_UNUSED(avcC);
 #endif
@@ -2350,22 +2357,17 @@ void AirPlayServer::drainDecodeQueue()
             bool needFlush = false;
             {
                 QMutexLocker lock(&m_decodeMutex);
-                if (!m_waitIdr.load() && m_decodeQueue.size() > 1) {
-                    frame = m_decodeQueue.takeLast();
-                    m_decodeQueue.clear();
-                } else {
-                    while (!m_decodeQueue.isEmpty()) {
-                        const QByteArray next = m_decodeQueue.dequeue();
-                        if (m_waitIdr.load()) {
-                            if (!annexBIsIdr(next))
-                                continue;
-                            m_waitIdr.store(false);
-                            needFlush = true;
-                            m_decodeQueue.clear();
-                        }
-                        frame = next;
-                        break;
+                while (!m_decodeQueue.isEmpty()) {
+                    const QByteArray next = m_decodeQueue.dequeue();
+                    if (m_waitIdr.load()) {
+                        if (!annexBIsIdr(next))
+                            continue;
+                        m_waitIdr.store(false);
+                        needFlush = true;
+                        m_decodeQueue.clear();
                     }
+                    frame = next;
+                    break;
                 }
                 if (frame.isEmpty()) {
                     m_decodeBusy.store(false);
@@ -2392,10 +2394,14 @@ void AirPlayServer::onScreenFrame(const QByteArray &annexB)
     bool needKey = false;
     {
         QMutexLocker lock(&m_decodeMutex);
-        if (m_decodeQueue.size() >= 3) {
+        if (m_decodeQueue.size() >= 8) {
             m_decodeQueue.clear();
             m_waitIdr.store(true);
-            needKey = true;
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (now - m_lastForceKeyMs >= 1000) {
+                m_lastForceKeyMs = now;
+                needKey = true;
+            }
         }
         m_decodeQueue.enqueue(annexB);
     }

@@ -85,6 +85,8 @@ void FileBrowser::rebuildRoots()
          QDir(base).filePath(QStringLiteral("media/music")), false},
         {QStringLiteral("video"), QStringLiteral("视频"),
          QDir(base).filePath(QStringLiteral("media/video")), false},
+        {QStringLiteral("pictures"), QStringLiteral("图片"),
+         QDir(base).filePath(QStringLiteral("media/pictures")), false},
         {QStringLiteral("recordings"), QStringLiteral("录像"),
          QDir(base).filePath(QStringLiteral("recordings")), false},
         {QStringLiteral("inbox"), QStringLiteral("无线接收"),
@@ -254,8 +256,12 @@ QString FileBrowser::kindOf(const QString &fileName)
     const QString s = QFileInfo(fileName).suffix().toLower();
     if (s == QLatin1String("wav"))
         return QStringLiteral("music");
-    if (s == QLatin1String("avi"))
+    if (s == QLatin1String("avi") || s == QLatin1String("mp4") || s == QLatin1String("mov")
+        || s == QLatin1String("mkv") || s == QLatin1String("webm"))
         return QStringLiteral("video");
+    if (s == QLatin1String("jpg") || s == QLatin1String("jpeg") || s == QLatin1String("png")
+        || s == QLatin1String("webp") || s == QLatin1String("bmp") || s == QLatin1String("gif"))
+        return QStringLiteral("image");
     return {};
 }
 
@@ -366,6 +372,8 @@ QVariantList FileBrowser::copyTargets(const QString &name) const
             add(QStringLiteral("video"), QStringLiteral("视频"));
             add(QStringLiteral("recordings"), QStringLiteral("录像"));
         }
+        if (kind == QLatin1String("image"))
+            add(QStringLiteral("pictures"), QStringLiteral("图片"));
     } else {
         for (const Root &r : m_rootList) {
             if (r.removable)
@@ -379,6 +387,8 @@ QVariantList FileBrowser::copyTargets(const QString &name) const
             if (m_rootId != QLatin1String("recordings"))
                 add(QStringLiteral("recordings"), QStringLiteral("录像"));
         }
+        if (kind == QLatin1String("image") && m_rootId != QLatin1String("pictures"))
+            add(QStringLiteral("pictures"), QStringLiteral("图片"));
         if (m_rootId != QLatin1String("inbox"))
             add(QStringLiteral("inbox"), QStringLiteral("无线接收"));
     }
@@ -680,8 +690,7 @@ void FileBrowser::handleRequest(QTcpSocket *sock, const QByteArray &raw)
                                      "application/json; charset=utf-8"));
         } else {
             setLastEvent(QStringLiteral("收到 %1").arg(saved));
-            if (m_rootId == QLatin1String("inbox"))
-                reloadEntries();
+            reloadEntries();
             if (m_media)
                 m_media->rescan();
             const QByteArray json =
@@ -743,7 +752,16 @@ bool FileBrowser::saveUpload(const QByteArray &body, const QByteArray &boundary,
         }
     }
     fileName = safeFileName(fileName);
-    const QString destRoot = inboxAbs();
+    const QString kind = kindOf(fileName);
+    QString destRoot = inboxAbs();
+    if (kind == QLatin1String("image"))
+        destRoot = rootAbsById(QStringLiteral("pictures"));
+    else if (kind == QLatin1String("video"))
+        destRoot = rootAbsById(QStringLiteral("video"));
+    else if (kind == QLatin1String("music"))
+        destRoot = rootAbsById(QStringLiteral("music"));
+    if (destRoot.isEmpty())
+        destRoot = inboxAbs();
     QDir().mkpath(destRoot);
     const QString dest = uniquePath(destRoot, fileName);
     QFile out(dest);
@@ -799,11 +817,11 @@ QByteArray FileBrowser::pageHtml() const
         "li{margin:10px 0} a{color:#64d2ff}"
         "</style></head><body>"
         "<h1>%1</h1>"
-        "<div class=box><p>上传到车机「无线接收」</p>"
+        "<div class=box><p>上传到车机（图片/视频/音乐自动归类）</p>"
         "<form method=post action=/upload enctype=multipart/form-data>"
         "<input type=file name=file onchange=\"this.form.submit()\">"
         "</form></div>"
-        "<div class=box><p>可下载</p><ul>%2</ul></div>"
+        "<div class=box><p>无线接收可下载</p><ul>%2</ul></div>"
         "</body></html>")
                              .arg(title, list);
     return html.toUtf8();

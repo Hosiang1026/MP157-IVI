@@ -17,7 +17,9 @@ public:
     bool darkBackdrop() const;
 
     Q_INVOKABLE void select(const QString &path);
-    Q_INVOKABLE void upload();
+    Q_INVOKABLE QVariantList pickableImages() const;
+    Q_INVOKABLE bool importFrom(const QString &path);
+    Q_INVOKABLE bool removeCustom(const QString &path);
 
 signals:
     void currentChanged();
@@ -29,6 +31,7 @@ private:
     void setCurrent(const QString &filePath);
     bool copyIn(const QString &sourcePath);
     void refreshBackdrop();
+    QString picturesDir() const;
 
     QString m_builtinDir;
     QString m_userDir;

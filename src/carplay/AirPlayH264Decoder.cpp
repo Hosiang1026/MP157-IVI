@@ -3,6 +3,8 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QMutex>
+#include <QMutexLocker>
 #include <cstring>
 
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
@@ -251,6 +253,7 @@ struct AirPlayH264Decoder::Impl {
     QByteArray pps;
     QString lastError;
     QString codecName;
+    QMutex mutex;
     bool started = false;
     bool hw = false;
 
@@ -338,29 +341,8 @@ struct AirPlayH264Decoder::Impl {
         if (!prefer.isEmpty() && findDecoderByName) {
             if (const AVCodec *c = findDecoderByName(prefer.constData())) {
                 codecName = QString::fromUtf8(prefer);
-                hw = true;
+                hw = prefer != "h264";
                 return c;
-            }
-        }
-        static const char *kHw[] = {
-#ifdef Q_OS_WIN
-            "h264_mf",
-            "h264_qsv",
-            "h264_d3d11va",
-#else
-            "h264_v4l2m2m",
-            "h264_omx",
-            "h264_rkmpp",
-            "h264_v4l2",
-#endif
-            nullptr};
-        if (findDecoderByName) {
-            for (int i = 0; kHw[i]; ++i) {
-                if (const AVCodec *c = findDecoderByName(kHw[i])) {
-                    codecName = QString::fromLatin1(kHw[i]);
-                    hw = true;
-                    return c;
-                }
             }
         }
         codecName = QStringLiteral("h264");
@@ -393,7 +375,10 @@ AirPlayH264Decoder::AirPlayH264Decoder()
 AirPlayH264Decoder::~AirPlayH264Decoder()
 {
 #ifdef IVI_FFMPEG_DYN
-    m->close();
+    {
+        QMutexLocker lock(&m->mutex);
+        m->close();
+    }
 #endif
     delete m;
 }
@@ -410,7 +395,7 @@ bool AirPlayH264Decoder::preload()
 bool AirPlayH264Decoder::configure(const QByteArray &avcCIn)
 {
 #ifdef IVI_FFMPEG_DYN
-    m->close();
+    QMutexLocker lock(&m->mutex);
     if (!m->loadLibs())
         return false;
     const QByteArray avcC = extractAvcCPayload(avcCIn);
@@ -420,6 +405,16 @@ bool AirPlayH264Decoder::configure(const QByteArray &avcCIn)
         m->lastError = QStringLiteral("parseAvcC failed");
         return false;
     }
+    if (m->started && m->sps == sps && m->pps == pps) {
+        m->lastError = QStringLiteral("unchanged %1 %2 sps=%3 pps=%4")
+                           .arg(m->hw ? QStringLiteral("hw") : QStringLiteral("sw"), m->codecName)
+                           .arg(sps.size())
+                           .arg(pps.size());
+        return true;
+    }
+    m->close();
+    if (!m->loadLibs())
+        return false;
     m->sps = sps;
     m->pps = pps;
 
@@ -483,6 +478,7 @@ bool AirPlayH264Decoder::configure(const QByteArray &avcCIn)
 void AirPlayH264Decoder::flush()
 {
 #ifdef IVI_FFMPEG_DYN
+    QMutexLocker lock(&m->mutex);
     if (m->ctx && m->flushBuffers)
         m->flushBuffers(m->ctx);
 #endif
@@ -491,6 +487,7 @@ void AirPlayH264Decoder::flush()
 QImage AirPlayH264Decoder::decode(const QByteArray &annexB)
 {
 #ifdef IVI_FFMPEG_DYN
+    QMutexLocker lock(&m->mutex);
     if (!m->started || annexB.isEmpty() || !m->ctx || !m->pkt || !m->frame)
         return {};
 

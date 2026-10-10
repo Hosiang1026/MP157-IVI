@@ -5,6 +5,7 @@ import IviShell
 
 Item {
     id: root
+    focus: true
     property string pendingWifiSsid: ""
     property string pendingWifiPass: ""
     property bool showConnectActions: false
@@ -14,11 +15,19 @@ Item {
         root.showConnectActions = !CarPlaySession.running
     }
 
+    function clearConnectFocus() {
+        root.forceActiveFocus()
+    }
+
     Connections {
         target: CarPlaySession
         function onRunningChanged() {
             if (!CarPlaySession.running)
                 root.showConnectActions = true
+        }
+        function onVideoFrameChanged() {
+            if (CarPlaySession.hasVideo)
+                root.clearConnectFocus()
         }
     }
 
@@ -82,6 +91,10 @@ Item {
         contentHeight: col.height + 40
         clip: true
         boundsBehavior: Flickable.StopAtBounds
+        onVisibleChanged: {
+            if (!visible)
+                root.clearConnectFocus()
+        }
 
         Column {
             id: col
@@ -528,6 +541,7 @@ Item {
                                     font.pixelSize: 15
                                     leftPadding: 12
                                     rightPadding: 12
+                                    activeFocusOnPress: connectPage.visible
                                     text: CarPlaySession.wifiPassword
                                     background: Rectangle {
                                         color: SystemState.fill
@@ -644,6 +658,7 @@ Item {
                                     font.pixelSize: 15
                                     leftPadding: 12
                                     rightPadding: 12
+                                    activeFocusOnPress: connectPage.visible
                                     background: Rectangle {
                                         color: SystemState.fill
                                         radius: 10

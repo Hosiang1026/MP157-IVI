@@ -86,41 +86,54 @@ Item {
         visible: !root.inCall
 
         Item {
+            id: keypadPage
             anchors.fill: parent
             visible: root.tab === "keypad"
+            readonly property int keySize: 56
 
-            Column {
-                anchors.centerIn: parent
-                spacing: 18
-                width: Math.min(parent.width - 32, 320)
+            Rectangle {
+                id: phoneBtBar
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                anchors.topMargin: 8
+                height: 36
+                radius: 10
+                color: SystemState.card
+                clip: true
 
-                Rectangle {
-                    width: parent.width
-                    height: phoneBtCol.height + 16
-                    radius: 12
-                    color: SystemState.card
-                    Column {
-                        id: phoneBtCol
-                        x: 12
-                        y: 8
-                        width: parent.width - 24
-                        spacing: 6
-                        Text {
-                            text: BluetoothMediaHub.phoneAddress.length
-                                  ? ("电话 · " + (BluetoothMediaHub.phoneName || BluetoothMediaHub.phoneAddress)
-                                     + (BluetoothMediaHub.phoneConnected ? "" : " · 未连"))
-                                  : "电话 · 等待蓝牙手机连接"
-                            color: SystemState.secondary
-                            font.pixelSize: 12
-                            width: parent.width
-                            elide: Text.ElideRight
-                        }
-                        Flow {
-                            width: parent.width
+                Row {
+                    anchors.fill: parent
+                    anchors.leftMargin: 10
+                    anchors.rightMargin: 8
+                    spacing: 6
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Math.min(140, parent.width * 0.35)
+                        text: BluetoothMediaHub.phoneAddress.length
+                              ? ((BluetoothMediaHub.phoneName || BluetoothMediaHub.phoneAddress)
+                                 + (BluetoothMediaHub.phoneConnected ? "" : " · 未连"))
+                              : "等待蓝牙手机"
+                        color: SystemState.secondary
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+                    Flickable {
+                        width: parent.width - 146
+                        height: parent.height
+                        contentWidth: phoneChipFlow.width
+                        clip: true
+                        flickableDirection: Flickable.HorizontalFlick
+                        boundsBehavior: Flickable.StopAtBounds
+                        Row {
+                            id: phoneChipFlow
+                            anchors.verticalCenter: parent.verticalCenter
                             spacing: 6
                             IosPressable {
-                                width: clearPhoneLbl.implicitWidth + 16
-                                height: 26
+                                width: clearPhoneLbl.implicitWidth + 14
+                                height: 24
                                 Rectangle {
                                     anchors.fill: parent
                                     radius: 7
@@ -133,7 +146,7 @@ Item {
                                     text: "本机模拟"
                                     color: BluetoothMediaHub.phoneAddress.length === 0
                                            ? SystemState.tint : SystemState.ink
-                                    font.pixelSize: 12
+                                    font.pixelSize: 11
                                 }
                                 onClicked: BluetoothMediaHub.clearPhone()
                             }
@@ -141,8 +154,8 @@ Item {
                                 model: BluetoothMediaHub.devices
                                 delegate: IosPressable {
                                     required property var modelData
-                                    width: Math.min(150, phoneChipRow.width + 16)
-                                    height: 26
+                                    width: Math.min(120, phoneChipRow.width + 14)
+                                    height: 24
                                     opacity: modelData.paired ? 1 : 0.55
                                     Rectangle {
                                         anchors.fill: parent
@@ -152,7 +165,7 @@ Item {
                                     Row {
                                         id: phoneChipRow
                                         anchors.centerIn: parent
-                                        spacing: 5
+                                        spacing: 4
                                         Rectangle {
                                             width: 6
                                             height: 6
@@ -163,10 +176,10 @@ Item {
                                         Text {
                                             text: modelData.name || modelData.address
                                             color: modelData.phone ? SystemState.tint : SystemState.ink
-                                            font.pixelSize: 12
+                                            font.pixelSize: 11
                                             font.bold: !!modelData.phone
                                             elide: Text.ElideRight
-                                            width: Math.min(120, implicitWidth)
+                                            width: Math.min(96, implicitWidth)
                                         }
                                     }
                                     onClicked: BluetoothMediaHub.selectPhoneDevice(modelData.address)
@@ -176,36 +189,95 @@ Item {
                         }
                     }
                 }
+            }
 
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: root.input.length > 0 ? root.input : " "
-                    color: root.input.length > 0 ? SystemState.ink : SystemState.secondary
-                    font.pixelSize: 36
-                    font.letterSpacing: 1
-                    elide: Text.ElideLeft
+            Text {
+                id: dialInput
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: phoneBtBar.bottom
+                anchors.topMargin: 4
+                height: 34
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                text: root.input.length > 0 ? root.input : " "
+                color: root.input.length > 0 ? SystemState.ink : SystemState.secondary
+                font.pixelSize: 30
+                font.letterSpacing: 1
+                elide: Text.ElideLeft
+            }
+
+            Item {
+                id: callRow
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 4
+                height: 56
+                IosPressable {
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.right: callBtn.left
+                    anchors.rightMargin: 28
+                    width: 48
+                    height: 48
+                    visible: root.input.length > 0
+                    onClicked: root.input = root.input.slice(0, -1)
+                    IosIcon {
+                        anchors.centerIn: parent
+                        width: 24
+                        height: 24
+                        name: "delete"
+                        ink: SystemState.tint
+                    }
                 }
-
-                Grid {
+                IosPressable {
+                    id: callBtn
                     anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 56
+                    height: 56
+                    onClicked: {
+                        if (root.input.length > 0)
+                            CallSession.dialNumber(root.input)
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 28
+                        color: SystemState.success
+                        IosIcon {
+                            anchors.centerIn: parent
+                            width: 26
+                            height: 26
+                            name: "phone"
+                            ink: "#FFFFFF"
+                        }
+                    }
+                }
+            }
+
+            Item {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: dialInput.bottom
+                anchors.bottom: callRow.top
+                Grid {
+                    anchors.centerIn: parent
                     columns: 3
-                    rowSpacing: 12
-                    columnSpacing: 22
+                    rowSpacing: 6
+                    columnSpacing: 18
                     Repeater {
                         model: root.dialKeys
                         delegate: IosPressable {
                             required property var modelData
-                            width: 72
-                            height: 72
+                            width: keypadPage.keySize
+                            height: keypadPage.keySize
                             onClicked: {
                                 if (root.input.length < 16)
                                     root.input += modelData.d
                             }
                             Rectangle {
                                 anchors.fill: parent
-                                radius: 36
+                                radius: keypadPage.keySize / 2
                                 color: SystemState.fill
                                 Column {
                                     anchors.centerIn: parent
@@ -214,61 +286,17 @@ Item {
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         text: modelData.d
                                         color: SystemState.ink
-                                        font.pixelSize: 28
+                                        font.pixelSize: 24
                                     }
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         text: modelData.s.length > 0 ? modelData.s : " "
                                         color: SystemState.secondary
-                                        font.pixelSize: 10
+                                        font.pixelSize: 9
                                         font.letterSpacing: 1
                                         opacity: modelData.s.length > 0 ? 1 : 0
                                     }
                                 }
-                            }
-                        }
-                    }
-                }
-
-                Item {
-                    width: parent.width
-                    height: 72
-                    IosPressable {
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.right: callBtn.left
-                        anchors.rightMargin: 36
-                        width: 56
-                        height: 56
-                        visible: root.input.length > 0
-                        onClicked: root.input = root.input.slice(0, -1)
-                        IosIcon {
-                            anchors.centerIn: parent
-                            width: 28
-                            height: 28
-                            name: "delete"
-                            ink: SystemState.tint
-                        }
-                    }
-                    IosPressable {
-                        id: callBtn
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 72
-                        height: 72
-                        onClicked: {
-                            if (root.input.length > 0)
-                                CallSession.dialNumber(root.input)
-                        }
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: 36
-                            color: SystemState.success
-                            IosIcon {
-                                anchors.centerIn: parent
-                                width: 30
-                                height: 30
-                                name: "phone"
-                                ink: "#FFFFFF"
                             }
                         }
                     }

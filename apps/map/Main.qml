@@ -282,7 +282,7 @@ Item {
                 spacing: 10
 
                 Rectangle {
-                    width: Math.max(180, parent.width - statusCard.width - navBtn.width - parent.spacing * 2)
+                    width: Math.max(180, parent.width - navBtn.width - parent.spacing)
                     height: 44
                     radius: 12
                     color: SystemState.card
@@ -298,86 +298,6 @@ Item {
                         onSubmitted: MapTiles.searchPlaces(text)
                         onCleared: root.query = ""
                         onTextChanged: root.query = text
-                    }
-                }
-
-                Rectangle {
-                    id: statusCard
-                    width: NavSession.active ? 220 : 200
-                    height: 44
-                    radius: 12
-                    color: SystemState.card
-                    opacity: 0.92
-                    border.color: SystemState.separator
-                    border.width: 1 / Screen.devicePixelRatio
-
-                    Row {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: 10
-                        anchors.rightMargin: 10
-                        spacing: 8
-
-                        Item {
-                            width: 28
-                            height: 28
-                            anchors.verticalCenter: parent.verticalCenter
-                            visible: NavSession.active
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: width / 2
-                                color: "#FFFFFF"
-                                border.color: VehicleState.speed > NavSession.speedLimit ? "#FF3B30" : "#E53935"
-                                border.width: 2.4
-                            }
-                            Text {
-                                anchors.centerIn: parent
-                                text: "" + NavSession.speedLimit
-                                color: "#111111"
-                                font.pixelSize: NavSession.speedLimit >= 100 ? 10 : 12
-                                font.weight: Font.Bold
-                            }
-                        }
-
-                        Rectangle {
-                            width: 8
-                            height: 8
-                            radius: 4
-                            anchors.verticalCenter: parent.verticalCenter
-                            visible: !NavSession.active
-                            color: GpsSource.hasFix ? SystemState.success
-                                   : (MapTiles.hasTiles ? SystemState.warning : SystemState.danger)
-                        }
-
-                        Column {
-                            width: parent.width - (NavSession.active ? 36 : 16)
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: 1
-                            Text {
-                                width: parent.width
-                                text: NavSession.active
-                                      ? NavSession.text
-                                      : (MapTiles.hasDestination
-                                         ? ("前往 " + MapTiles.destinationName)
-                                         : (MapTiles.hasTiles ? "离线地图" : "未找到底图"))
-                                color: SystemState.ink
-                                font.pixelSize: 14
-                                font.bold: true
-                                elide: Text.ElideRight
-                            }
-                            Text {
-                                width: parent.width
-                                visible: NavSession.active || !MapTiles.hasTiles
-                                text: NavSession.active
-                                      ? (VehicleState.speed + " km/h · ETA " + NavSession.etaMin + " 分")
-                                      : "先运行 tileserver"
-                                color: VehicleState.speed > NavSession.speedLimit && NavSession.active
-                                       ? SystemState.danger : SystemState.secondary
-                                font.pixelSize: 11
-                                elide: Text.ElideRight
-                            }
-                        }
                     }
                 }
 

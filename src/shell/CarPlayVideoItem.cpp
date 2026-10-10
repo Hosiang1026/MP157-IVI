@@ -61,8 +61,9 @@ void CarPlayVideoItem::onFrame()
     QImage frame = m_session->videoFrame();
     if (frame.isNull())
         return;
-    if (frame.format() != QImage::Format_ARGB32_Premultiplied)
-        frame = frame.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    if (frame.format() != QImage::Format_RGB32 && frame.format() != QImage::Format_ARGB32
+        && frame.format() != QImage::Format_ARGB32_Premultiplied)
+        frame = frame.convertToFormat(QImage::Format_RGB32);
     {
         QMutexLocker lock(&m_mutex);
         m_frame = frame;

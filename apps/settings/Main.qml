@@ -4,6 +4,15 @@ import Ivi.Services 1.0
 import IviShell
 
 Item {
+    id: root
+    property bool wallPickerOpen: false
+    property var wallPickList: []
+
+    function openWallPicker() {
+        wallPickList = WallpaperStore.pickableImages()
+        wallPickerOpen = true
+    }
+
     Rectangle {
         anchors.fill: parent
         color: "transparent"
@@ -839,6 +848,27 @@ Item {
                                     style: Text.Outline
                                     styleColor: "#99000000"
                                 }
+                                Rectangle {
+                                    visible: modelData.custom === true
+                                    anchors.top: parent.top
+                                    anchors.right: parent.right
+                                    anchors.margins: 2
+                                    width: 22
+                                    height: 22
+                                    radius: 11
+                                    color: "#CC000000"
+                                    z: 2
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "×"
+                                        color: "#FFFFFF"
+                                        font.pixelSize: 14
+                                    }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: WallpaperStore.removeCustom(modelData.path)
+                                    }
+                                }
                             }
                         }
                     }
@@ -850,13 +880,125 @@ Item {
                     anchors.bottomMargin: 10
                     width: 96
                     height: 30
-                    onClicked: WallpaperStore.upload()
+                    onClicked: root.openWallPicker()
                     Rectangle {
                         anchors.fill: parent
                         radius: 15
                         color: SystemState.tint
                         Text { anchors.centerIn: parent; text: "上传壁纸"; color: "#FFFFFF"; font.pixelSize: 13 }
                     }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        visible: root.wallPickerOpen
+        color: "#99000000"
+        z: 30
+        MouseArea {
+            anchors.fill: parent
+            onClicked: root.wallPickerOpen = false
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: Math.min(parent.height * 0.72, 420)
+            radius: 16
+            color: SystemState.card
+            border.width: 1 / Screen.devicePixelRatio
+            border.color: SystemState.separator
+            MouseArea { anchors.fill: parent }
+
+            Column {
+                anchors.fill: parent
+                anchors.margins: 16
+                spacing: 10
+
+                Text {
+                    text: "从文件选择壁纸"
+                    color: SystemState.ink
+                    font.pixelSize: 18
+                    font.bold: true
+                }
+                Text {
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: "图片来自文件应用「图片 / 无线接收」"
+                    color: SystemState.secondary
+                    font.pixelSize: 13
+                }
+
+                Flickable {
+                    width: parent.width
+                    height: Math.max(80, parent.height - 140)
+                    contentHeight: pickGrid.implicitHeight
+                    clip: true
+                    Grid {
+                        id: pickGrid
+                        width: parent.width
+                        columns: 4
+                        columnSpacing: 8
+                        rowSpacing: 8
+                        Repeater {
+                            model: root.wallPickList
+                            delegate: IosPressable {
+                                required property var modelData
+                                width: (pickGrid.width - 24) / 4
+                                height: width * 0.7
+                                onClicked: {
+                                    WallpaperStore.importFrom(modelData.path)
+                                    root.wallPickerOpen = false
+                                }
+                                Image {
+                                    anchors.fill: parent
+                                    source: modelData.url
+                                    fillMode: Image.PreserveAspectCrop
+                                }
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.margins: 4
+                                    elide: Text.ElideMiddle
+                                    text: modelData.name
+                                    color: "#FFFFFF"
+                                    font.pixelSize: 11
+                                    style: Text.Outline
+                                    styleColor: "#99000000"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    visible: root.wallPickList.length === 0
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: "暂无图片，请先在文件应用中添加"
+                    color: SystemState.secondary
+                    font.pixelSize: 13
+                }
+
+                IosPressable {
+                    width: parent.width
+                    height: 48
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 12
+                        color: SystemState.fill
+                    }
+                    Text {
+                        anchors.centerIn: parent
+                        text: "取消"
+                        color: SystemState.ink
+                        font.pixelSize: 16
+                    }
+                    onClicked: root.wallPickerOpen = false
                 }
             }
         }

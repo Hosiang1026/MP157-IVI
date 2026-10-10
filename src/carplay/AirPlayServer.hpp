@@ -196,6 +196,7 @@ private:
     QQueue<QByteArray> m_decodeQueue;
     std::atomic_bool m_decodeBusy{false};
     std::atomic_bool m_waitIdr{false};
+    qint64 m_lastForceKeyMs = 0;
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     void *m_mfDecoder = nullptr;
 #endif
