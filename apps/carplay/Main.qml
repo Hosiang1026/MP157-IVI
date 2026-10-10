@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import Ivi.Services 1.0
+import IviShell
 
 Item {
     id: root
@@ -23,13 +24,14 @@ Item {
 
     Rectangle {
         anchors.fill: parent
+        visible: CarPlaySession.hasVideo
         color: "#000000"
     }
 
     CarPlayVideoItem {
         id: videoSurface
         anchors.fill: parent
-        visible: CarPlaySession.hasVideo
+        visible: CarPlaySession.hasVideo || videoSurface.contentWidth > 0
         z: 10
         session: CarPlaySession
     }
@@ -39,6 +41,7 @@ Item {
         visible: CarPlaySession.hasVideo
         z: 20
         maximumTouchPoints: 1
+        mouseEnabled: true
         property real lastX: 0.5
         property real lastY: 0.5
 
@@ -69,31 +72,6 @@ Item {
         onCanceled: function() {
             CarPlaySession.sendTouch(lastX, lastY, false)
         }
-
-        MouseArea {
-            anchors.fill: parent
-            acceptedButtons: Qt.LeftButton
-            preventStealing: true
-            propagateComposedEvents: false
-            property real lastX: 0.5
-            property real lastY: 0.5
-            function send(mx, my, down) {
-                const w = Math.max(1, width)
-                const h = Math.max(1, height)
-                const x = Math.min(1, Math.max(0, mx / w))
-                const y = Math.min(1, Math.max(0, my / h))
-                lastX = x
-                lastY = y
-                CarPlaySession.sendTouch(x, y, down)
-            }
-            onPressed: function(mouse) { send(mouse.x, mouse.y, true) }
-            onPositionChanged: function(mouse) {
-                if (pressed)
-                    send(mouse.x, mouse.y, true)
-            }
-            onReleased: function(mouse) { send(mouse.x, mouse.y, false) }
-            onCanceled: { CarPlaySession.sendTouch(lastX, lastY, false) }
-        }
     }
 
     Flickable {
@@ -117,14 +95,14 @@ Item {
                 spacing: 6
                 Text {
                     text: "CarPlay"
-                    color: "#FFFFFF"
+                    color: SystemState.ink
                     font.pixelSize: 32
                     font.bold: true
                     font.letterSpacing: 0.5
                 }
                 Text {
                     text: "无线连接"
-                    color: "#8E8E93"
+                    color: SystemState.secondary
                     font.pixelSize: 15
                 }
             }
@@ -133,9 +111,8 @@ Item {
                 width: parent.width
                 height: statusCol.height + 28
                 radius: 16
-                color: "#141416"
-                border.color: "#222226"
-                border.width: 1
+                color: SystemState.card
+                border.width: 0
 
                 Column {
                     id: statusCol
@@ -151,13 +128,13 @@ Item {
                             height: 8
                             radius: 4
                             anchors.verticalCenter: parent.verticalCenter
-                            color: CarPlaySession.running ? "#FF9F0A"
-                                   : CarPlaySession.identityReady ? "#34C759" : "#FF453A"
+                            color: CarPlaySession.running ? SystemState.warning
+                                   : CarPlaySession.identityReady ? SystemState.success : SystemState.danger
                         }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             text: CarPlaySession.status
-                            color: "#FFFFFF"
+                            color: SystemState.ink
                             font.pixelSize: 16
                             font.bold: true
                         }
@@ -166,7 +143,7 @@ Item {
                         width: parent.width
                         wrapMode: Text.WordWrap
                         text: CarPlaySession.detail
-                        color: "#8E8E93"
+                        color: SystemState.secondary
                         font.pixelSize: 13
                         visible: text.length > 0
                     }
@@ -178,52 +155,52 @@ Item {
                 spacing: 12
                 visible: root.showConnectActions || CarPlaySession.running
 
-                Rectangle {
+                IosPressable {
                     width: parent.width - 120
                     height: 50
-                    radius: 14
+                    enabled: CarPlaySession.canStart
                     visible: root.showConnectActions || CarPlaySession.running
-                    gradient: Gradient {
-                        orientation: Gradient.Horizontal
-                        GradientStop {
-                            position: 0.0
-                            color: CarPlaySession.canStart ? "#0A84FF" : "#3A3A3C"
-                        }
-                        GradientStop {
-                            position: 1.0
-                            color: CarPlaySession.canStart ? "#0066D6" : "#2C2C2E"
-                        }
-                    }
-                    Text {
-                        anchors.centerIn: parent
-                        text: CarPlaySession.running ? "连接中…" : "开始 CarPlay"
-                        color: "#FFFFFF"
-                        font.pixelSize: 17
-                        font.bold: true
-                    }
-                    MouseArea {
+                    onClicked: CarPlaySession.start()
+                    Rectangle {
                         anchors.fill: parent
-                        enabled: CarPlaySession.canStart
-                        onClicked: CarPlaySession.start()
+                        radius: 14
+                        gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop {
+                                position: 0.0
+                                color: CarPlaySession.canStart ? SystemState.tint : SystemState.elevated
+                            }
+                            GradientStop {
+                                position: 1.0
+                                color: CarPlaySession.canStart ? SystemState.tint : SystemState.fill
+                            }
+                        }
+                        Text {
+                            anchors.centerIn: parent
+                            text: CarPlaySession.running ? "连接中…" : "开始 CarPlay"
+                            color: "#FFFFFF"
+                            font.pixelSize: 17
+                            font.bold: true
+                        }
                     }
                 }
-                Rectangle {
+                IosPressable {
                     width: 108
                     height: 50
-                    radius: 14
-                    color: CarPlaySession.running ? "#FF453A" : "#2C2C2E"
-                    Text {
-                        anchors.centerIn: parent
-                        text: "断开"
-                        color: CarPlaySession.running ? "#FFFFFF" : "#8E8E93"
-                        font.pixelSize: 16
-                        font.bold: true
+                    onClicked: {
+                        CarPlaySession.stop()
+                        root.showConnectActions = true
                     }
-                    MouseArea {
+                    Rectangle {
                         anchors.fill: parent
-                        onClicked: {
-                            CarPlaySession.stop()
-                            root.showConnectActions = true
+                        radius: 14
+                        color: CarPlaySession.running ? SystemState.danger : SystemState.fill
+                        Text {
+                            anchors.centerIn: parent
+                            text: "断开"
+                            color: CarPlaySession.running ? "#FFFFFF" : SystemState.secondary
+                            font.pixelSize: 16
+                            font.bold: true
                         }
                     }
                 }
@@ -233,7 +210,7 @@ Item {
                 width: parent.width
                 height: 40
                 radius: 10
-                color: "#2A1F0A"
+                color: SystemState.elevated
                 visible: (root.showConnectActions || CarPlaySession.running)
                          && ((!CarPlaySession.canStart && !CarPlaySession.running) || CarPlaySession.running)
                 Text {
@@ -249,7 +226,7 @@ Item {
                           : CarPlaySession.wifiPassword.length === 0 ? "请填写当前 Wi‑Fi 密码"
                           : CarPlaySession.bluetoothAddress.length === 0 ? "请先选择已配对的手机"
                           : "请确认手机已配对后再开始"
-                    color: "#FF9F0A"
+                    color: SystemState.warning
                     font.pixelSize: 13
                 }
             }
@@ -263,27 +240,27 @@ Item {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: "手机"
-                        color: "#8E8E93"
+                        color: SystemState.secondary
                         font.pixelSize: 13
                         font.bold: true
                         font.letterSpacing: 0.8
                     }
                     Item { width: parent.width - 120; height: 1 }
-                    Rectangle {
+                    IosPressable {
                         width: 64
                         height: 28
-                        radius: 14
-                        color: "#2C2C2E"
-                        Text {
-                            anchors.centerIn: parent
-                            text: "刷新"
-                            color: "#0A84FF"
-                            font.pixelSize: 13
-                            font.bold: true
-                        }
-                        MouseArea {
+                        onClicked: CarPlaySession.refreshBluetooth()
+                        Rectangle {
                             anchors.fill: parent
-                            onClicked: CarPlaySession.refreshBluetooth()
+                            radius: 14
+                            color: SystemState.fill
+                            Text {
+                                anchors.centerIn: parent
+                                text: "刷新"
+                                color: SystemState.tint
+                                font.pixelSize: 13
+                                font.bold: true
+                            }
                         }
                     }
                 }
@@ -291,9 +268,8 @@ Item {
                 Rectangle {
                     width: parent.width
                     radius: 16
-                    color: "#141416"
-                    border.color: "#222226"
-                    border.width: 1
+                    color: SystemState.card
+                    border.width: 0
                     height: btInner.height
 
                     Column {
@@ -314,15 +290,15 @@ Item {
                                 text: "已选  " + (CarPlaySession.bluetoothName.length
                                       ? CarPlaySession.bluetoothName + "  ·  " : "")
                                       + CarPlaySession.bluetoothAddress
-                                color: "#0A84FF"
+                                color: SystemState.tint
                                 font.pixelSize: 13
                             }
                         }
                         Rectangle {
                             width: parent.width - 32
-                            height: 1
+                            height: 0.5
                             x: 16
-                            color: "#222226"
+                            color: SystemState.separator
                             visible: CarPlaySession.bluetoothAddress.length > 0
                                      && CarPlaySession.bluetoothDevices.length > 0
                         }
@@ -336,7 +312,7 @@ Item {
                                 width: btInner.width
                                 height: 56
                                 color: String(modelData.address).toUpperCase() === CarPlaySession.bluetoothAddress
-                                       ? "#1A3A5C" : "transparent"
+                                       ? SystemState.selected : "transparent"
 
                                 Rectangle {
                                     anchors.left: parent.left
@@ -346,7 +322,7 @@ Item {
                                     height: 36
                                     radius: 18
                                     color: String(btRow.modelData.address).toUpperCase() === CarPlaySession.bluetoothAddress
-                                           ? "#0A84FF" : "#2C2C2E"
+                                           ? SystemState.tint : SystemState.fill
                                     Text {
                                         anchors.centerIn: parent
                                         text: {
@@ -370,7 +346,7 @@ Item {
                                         width: parent.width
                                         text: btRow.modelData.name && String(btRow.modelData.name).length
                                               ? btRow.modelData.name : "未知设备"
-                                        color: "#FFFFFF"
+                                        color: SystemState.ink
                                         font.pixelSize: 15
                                         elide: Text.ElideRight
                                     }
@@ -379,38 +355,38 @@ Item {
                                         text: btRow.modelData.address
                                               + (btRow.modelData.paired ? "  ·  已配对" : "  ·  未配对")
                                               + (btRow.modelData.connected ? "  ·  链路中" : "")
-                                        color: "#8E8E93"
+                                        color: SystemState.secondary
                                         font.pixelSize: 12
                                         elide: Text.ElideRight
                                     }
                                 }
 
-                                Rectangle {
+                                IosPressable {
                                     id: actionBtn
                                     anchors.right: parent.right
                                     anchors.rightMargin: 14
                                     anchors.verticalCenter: parent.verticalCenter
                                     width: 64
                                     height: 30
-                                    radius: 15
-                                    color: btRow.modelData.paired ? "#0A84FF" : "#3A3A3C"
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: btRow.modelData.paired ? "选择" : "配对"
-                                        color: "#FFFFFF"
-                                        font.pixelSize: 13
-                                        font.bold: true
+                                    z: 2
+                                    onClicked: {
+                                        const addr = String(btRow.modelData.address)
+                                        const name = String(btRow.modelData.name || "")
+                                        if (btRow.modelData.paired)
+                                            CarPlaySession.selectBluetooth(addr, name)
+                                        else
+                                            CarPlaySession.pairBluetooth(addr)
                                     }
-                                    MouseArea {
+                                    Rectangle {
                                         anchors.fill: parent
-                                        z: 2
-                                        onClicked: {
-                                            const addr = String(btRow.modelData.address)
-                                            const name = String(btRow.modelData.name || "")
-                                            if (btRow.modelData.paired)
-                                                CarPlaySession.selectBluetooth(addr, name)
-                                            else
-                                                CarPlaySession.pairBluetooth(addr)
+                                        radius: 15
+                                        color: btRow.modelData.paired ? SystemState.tint : SystemState.elevated
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: btRow.modelData.paired ? "选择" : "配对"
+                                            color: "#FFFFFF"
+                                            font.pixelSize: 13
+                                            font.bold: true
                                         }
                                     }
                                 }
@@ -420,8 +396,8 @@ Item {
                                     anchors.leftMargin: 64
                                     anchors.right: parent.right
                                     anchors.bottom: parent.bottom
-                                    height: 1
-                                    color: "#222226"
+                                    height: 0.5
+                                    color: SystemState.separator
                                     visible: btRow.index < CarPlaySession.bluetoothDevices.length - 1
                                 }
 
@@ -447,7 +423,7 @@ Item {
                             Text {
                                 anchors.centerIn: parent
                                 text: "暂无设备，点刷新扫描"
-                                color: "#636366"
+                                color: SystemState.secondary
                                 font.pixelSize: 13
                             }
                         }
@@ -464,27 +440,27 @@ Item {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: "Wi‑Fi"
-                        color: "#8E8E93"
+                        color: SystemState.secondary
                         font.pixelSize: 13
                         font.bold: true
                         font.letterSpacing: 0.8
                     }
                     Item { width: parent.width - 120; height: 1 }
-                    Rectangle {
+                    IosPressable {
                         width: 64
                         height: 28
-                        radius: 14
-                        color: "#2C2C2E"
-                        Text {
-                            anchors.centerIn: parent
-                            text: "刷新"
-                            color: "#0A84FF"
-                            font.pixelSize: 13
-                            font.bold: true
-                        }
-                        MouseArea {
+                        onClicked: CarPlaySession.refreshWifi()
+                        Rectangle {
                             anchors.fill: parent
-                            onClicked: CarPlaySession.refreshWifi()
+                            radius: 14
+                            color: SystemState.fill
+                            Text {
+                                anchors.centerIn: parent
+                                text: "刷新"
+                                color: SystemState.tint
+                                font.pixelSize: 13
+                                font.bold: true
+                            }
                         }
                     }
                 }
@@ -492,9 +468,8 @@ Item {
                 Rectangle {
                     width: parent.width
                     radius: 16
-                    color: "#141416"
-                    border.color: "#222226"
-                    border.width: 1
+                    color: SystemState.card
+                    border.width: 0
                     height: wifiInner.height
 
                     Column {
@@ -517,12 +492,12 @@ Item {
                                     height: 7
                                     radius: 4
                                     anchors.verticalCenter: parent.verticalCenter
-                                    color: "#34C759"
+                                    color: SystemState.success
                                 }
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: "已连接  " + CarPlaySession.wifiSsid
-                                    color: "#34C759"
+                                    color: SystemState.success
                                     font.pixelSize: 14
                                     font.bold: true
                                 }
@@ -536,9 +511,9 @@ Item {
 
                             Rectangle {
                                 width: parent.width - 32
-                                height: 1
+                                height: 0.5
                                 x: 16
-                                color: "#222226"
+                                color: SystemState.separator
                             }
 
                             Column {
@@ -550,7 +525,7 @@ Item {
 
                                 Text {
                                     text: "Wi‑Fi 密码（发给手机）"
-                                    color: "#8E8E93"
+                                    color: SystemState.secondary
                                     font.pixelSize: 12
                                 }
                                 TextField {
@@ -558,16 +533,16 @@ Item {
                                     height: 42
                                     echoMode: TextInput.Password
                                     placeholderText: "与手机同一 Wi‑Fi 的密码"
-                                    color: "#FFFFFF"
+                                    color: SystemState.ink
+                                    placeholderTextColor: SystemState.secondary
                                     font.pixelSize: 15
                                     leftPadding: 12
                                     rightPadding: 12
                                     text: CarPlaySession.wifiPassword
                                     background: Rectangle {
-                                        color: "#1C1C1E"
+                                        color: SystemState.fill
                                         radius: 10
-                                        border.color: "#2C2C2E"
-                                        border.width: 1
+                                        border.width: 0
                                     }
                                     onTextChanged: CarPlaySession.wifiPassword = text
                                 }
@@ -589,7 +564,7 @@ Item {
                                     height: 54
                                     color: modelData.ssid === root.pendingWifiSsid
                                            || modelData.ssid === CarPlaySession.wifiSsid
-                                           ? "#1A3A5C" : "transparent"
+                                           ? SystemState.selected : "transparent"
 
                                     Column {
                                         anchors.left: parent.left
@@ -601,33 +576,34 @@ Item {
                                         Text {
                                             width: parent.width
                                             text: wifiRow.modelData.ssid
-                                            color: "#FFFFFF"
+                                            color: SystemState.ink
                                             font.pixelSize: 15
                                             elide: Text.ElideRight
                                         }
                                         Text {
                                             text: (wifiRow.modelData.secured ? "加密" : "开放")
                                                   + "  ·  信号 " + wifiRow.modelData.signal
-                                            color: "#8E8E93"
+                                            color: SystemState.secondary
                                             font.pixelSize: 12
                                         }
                                     }
-                                    Text {
+                                    Rectangle {
                                         anchors.right: parent.right
-                                        anchors.rightMargin: 16
+                                        anchors.rightMargin: 18
                                         anchors.verticalCenter: parent.verticalCenter
-                                        text: wifiRow.modelData.ssid === root.pendingWifiSsid ? "✓" : ""
-                                        color: "#0A84FF"
-                                        font.pixelSize: 16
-                                        font.bold: true
+                                        width: 10
+                                        height: 10
+                                        radius: 5
+                                        color: SystemState.tint
+                                        visible: wifiRow.modelData.ssid === root.pendingWifiSsid
                                     }
                                     Rectangle {
                                         anchors.left: parent.left
                                         anchors.leftMargin: 16
                                         anchors.right: parent.right
                                         anchors.bottom: parent.bottom
-                                        height: 1
-                                        color: "#222226"
+                                        height: 0.5
+                                        color: SystemState.separator
                                         visible: wifiRow.index < CarPlaySession.wifiNetworks.length - 1
                                                  || root.pendingWifiSsid.length > 0
                                     }
@@ -649,7 +625,7 @@ Item {
                                 Text {
                                     anchors.centerIn: parent
                                     text: "暂无网络，点刷新扫描"
-                                    color: "#636366"
+                                    color: SystemState.secondary
                                     font.pixelSize: 13
                                 }
                             }
@@ -664,7 +640,7 @@ Item {
 
                                 Text {
                                     text: "连接  " + root.pendingWifiSsid
-                                    color: "#FFFFFF"
+                                    color: SystemState.ink
                                     font.pixelSize: 14
                                     font.bold: true
                                 }
@@ -673,35 +649,35 @@ Item {
                                     height: 42
                                     echoMode: TextInput.Password
                                     placeholderText: "开放网络可留空"
-                                    color: "#FFFFFF"
+                                    color: SystemState.ink
+                                    placeholderTextColor: SystemState.secondary
                                     font.pixelSize: 15
                                     leftPadding: 12
                                     rightPadding: 12
                                     background: Rectangle {
-                                        color: "#1C1C1E"
+                                        color: SystemState.fill
                                         radius: 10
-                                        border.color: "#2C2C2E"
-                                        border.width: 1
+                                        border.width: 0
                                     }
                                     onTextChanged: root.pendingWifiPass = text
                                 }
-                                Rectangle {
+                                IosPressable {
                                     width: parent.width
                                     height: 42
-                                    radius: 12
-                                    color: "#0A84FF"
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: "连接此网络"
-                                        color: "#FFFFFF"
-                                        font.pixelSize: 15
-                                        font.bold: true
+                                    onClicked: {
+                                        if (CarPlaySession.connectWifi(root.pendingWifiSsid, root.pendingWifiPass))
+                                            root.pendingWifiSsid = ""
                                     }
-                                    MouseArea {
+                                    Rectangle {
                                         anchors.fill: parent
-                                        onClicked: {
-                                            if (CarPlaySession.connectWifi(root.pendingWifiSsid, root.pendingWifiPass))
-                                                root.pendingWifiSsid = ""
+                                        radius: 12
+                                        color: SystemState.tint
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "连接此网络"
+                                            color: "#FFFFFF"
+                                            font.pixelSize: 15
+                                            font.bold: true
                                         }
                                     }
                                 }
@@ -711,7 +687,11 @@ Item {
                 }
             }
 
-            Component.onCompleted: root.tryAutoConnect()
+            Timer {
+                interval: 0
+                running: true
+                onTriggered: root.tryAutoConnect()
+            }
         }
     }
 }

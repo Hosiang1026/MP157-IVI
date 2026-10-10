@@ -7,6 +7,7 @@
 #include <QHostAddress>
 #include <QImage>
 #include <QNetworkAccessManager>
+#include <QNetworkInterface>
 #include <QObject>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -75,8 +76,11 @@ private:
     void setRunning(bool running);
     void setTransport(const QString &state);
     QString primaryIpv4() const;
+    QNetworkInterface primaryIface() const;
+    bool setupSsdpSocket();
     void sendSsdpNotify(const QString &nts);
     void replySsdpSearch(const QHostAddress &addr, quint16 port, const QByteArray &st);
+    void sendSsdpResponse(const QHostAddress &addr, quint16 port, const QByteArray &st);
     void handleHttp(QTcpSocket *sock, const QByteArray &req);
     QByteArray deviceDescription() const;
     QByteArray scpdAvTransport() const;

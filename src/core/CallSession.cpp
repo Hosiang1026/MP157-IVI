@@ -144,6 +144,14 @@ void CallSession::connectCall()
     m_timer.start();
 }
 
+void CallSession::answer()
+{
+    if (!m_ringing)
+        return;
+    m_ringTimer.stop();
+    connectCall();
+}
+
 void CallSession::hangup()
 {
     m_ringTimer.stop();
@@ -158,6 +166,38 @@ void CallSession::hangup()
         emit activeChanged();
     if (wasRinging || wasActive)
         m_audio->release(QStringLiteral("call"));
+}
+
+void CallSession::applyRemote(bool active, bool ringing, const QString &name, const QString &number)
+{
+    m_ringTimer.stop();
+    const bool wasRinging = m_ringing;
+    const bool wasActive = m_active;
+    m_ringing = ringing;
+    m_active = active && !ringing;
+    if (!name.isEmpty())
+        m_name = name;
+    if (!number.isEmpty())
+        m_number = number;
+    if (m_active && !wasActive) {
+        m_elapsed = 0;
+        m_timer.start();
+        if (m_audio)
+            m_audio->request(QStringLiteral("call"), m_audio->callPriority());
+    }
+    if (!m_active && !m_ringing) {
+        m_timer.stop();
+        if (wasActive || wasRinging) {
+            if (m_audio)
+                m_audio->release(QStringLiteral("call"));
+        }
+    }
+    emit infoChanged();
+    if (wasRinging != m_ringing)
+        emit ringingChanged();
+    if (wasActive != m_active)
+        emit activeChanged();
+    emit elapsedChanged();
 }
 
 void CallSession::toggleMuted()

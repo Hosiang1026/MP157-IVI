@@ -593,6 +593,10 @@ AirPlayServer::AirPlayServer(QObject *parent)
 AirPlayServer::~AirPlayServer()
 {
     stop();
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+    delete static_cast<AirPlayH264Decoder *>(m_mfDecoder);
+    m_mfDecoder = nullptr;
+#endif
 }
 
 bool AirPlayServer::start(AirPlayIdentity *identity, LocalMfiAuth *mfi, const QString &deviceName,
@@ -629,6 +633,15 @@ bool AirPlayServer::start(AirPlayIdentity *identity, LocalMfiAuth *mfi, const QS
     m_port = m_server.serverPort();
     m_timingPort = ensureTimingUdp();
     m_eventPort = ensureEventTcp();
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+    if (!m_mfDecoder)
+        m_mfDecoder = new AirPlayH264Decoder;
+    auto *decoder = static_cast<AirPlayH264Decoder *>(m_mfDecoder);
+    (void)QtConcurrent::run([decoder]() {
+        if (decoder)
+            decoder->preload();
+    });
+#endif
     emit listening(m_port);
     emit log(QStringLiteral("AirPlay listening on %1 bind=%2 event=%3")
                  .arg(m_port)
@@ -657,6 +670,11 @@ void AirPlayServer::stop()
     m_eventCipher.reset();
     m_eventBuf.clear();
     m_eventPlain.clear();
+    m_eventOut.clear();
+    m_touchDown = false;
+    m_lastTouchSendMs = 0;
+    m_lastTouchPx = -1;
+    m_lastTouchPy = -1;
     m_timingTimer.stop();
     m_timingPeer = QHostAddress();
     m_timingPeerPort = 0;
@@ -673,6 +691,7 @@ void AirPlayServer::stop()
     m_sps.clear();
     m_pps.clear();
     m_videoFrame = QImage();
+    emit videoFrameChanged();
     m_timingPort = 0;
     m_eventPort = 0;
     m_keepAlivePort = 0;
@@ -687,10 +706,6 @@ void AirPlayServer::stop()
     m_identity = nullptr;
     m_mfi = nullptr;
     m_pairings.reset();
-#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
-    delete static_cast<AirPlayH264Decoder *>(m_mfDecoder);
-    m_mfDecoder = nullptr;
-#endif
 }
 
 namespace {
@@ -1097,6 +1112,258 @@ void AirPlayServer::setDisplaySize(int width, int height)
     m_displayH = height;
 }
 
+void AirPlayServer::setSafeAreaInsets(int top, int bottom, int left, int right)
+{
+    m_safeTop = qMax(0, top);
+    m_safeBottom = qMax(0, bottom);
+    m_safeLeft = qMax(0, left);
+    m_safeRight = qMax(0, right);
+}
+
+QByteArray AirPlayServer::buildMediaReport(quint8 usageIndex)
+{
+    QByteArray report(1, char(usageIndex));
+    return report;
+}
+
+bool AirPlayServer::sendHidReport(const QString &uuid, const QByteArray &report)
+{
+    QVariantMap cmd;
+    cmd.insert(QStringLiteral("type"), QStringLiteral("hidSendReport"));
+    cmd.insert(QStringLiteral("uuid"), uuid);
+    cmd.insert(QStringLiteral("hidReport"), report);
+    return sendEventCommand(cmd);
+}
+
+bool AirPlayServer::setNightMode(bool night)
+{
+    m_nightMode = night;
+    QVariantMap cmd;
+    cmd.insert(QStringLiteral("type"), QStringLiteral("appearanceUpdate"));
+    cmd.insert(QStringLiteral("appearanceModes"), night ? 1 : 0);
+    if (!sendEventCommand(cmd))
+        return false;
+    QVariantMap nightCmd;
+    nightCmd.insert(QStringLiteral("type"), QStringLiteral("nightModeUpdate"));
+    nightCmd.insert(QStringLiteral("nightMode"), night);
+    sendEventCommand(nightCmd);
+    emit log(QStringLiteral("nightMode %1").arg(int(night)));
+    return true;
+}
+
+QString AirPlayServer::mapManeuverTurn(const QVariant &maneuver)
+{
+    const QString s = maneuver.toString().toLower();
+    if (s.contains(QStringLiteral("left")) || s.contains(QStringLiteral("左")))
+        return QStringLiteral("left");
+    if (s.contains(QStringLiteral("right")) || s.contains(QStringLiteral("右")))
+        return QStringLiteral("right");
+    if (s.contains(QStringLiteral("arrive")) || s.contains(QStringLiteral("到达"))
+        || s.contains(QStringLiteral("dest")))
+        return QStringLiteral("arrive");
+    bool ok = false;
+    const int code = maneuver.toInt(&ok);
+    if (ok) {
+        // Common CarPlay maneuver enums (subset).
+        if (code == 2 || code == 3 || code == 4)
+            return QStringLiteral("left");
+        if (code == 5 || code == 6 || code == 7)
+            return QStringLiteral("right");
+        if (code == 16 || code == 17)
+            return QStringLiteral("arrive");
+    }
+    return QStringLiteral("straight");
+}
+
+void AirPlayServer::handleIncomingCommand(const QVariantMap &cmd)
+{
+    const QString type = cmd.value(QStringLiteral("type")).toString();
+    QVariantMap params = cmd.value(QStringLiteral("params")).toMap();
+    if (params.isEmpty())
+        params = cmd;
+
+    if (type == QLatin1String("requestUI")) {
+        const QString url = params.value(QStringLiteral("url")).toString();
+        if (!url.startsWith(QLatin1String("videoplayback:"))) {
+            emit log(QStringLiteral("host UI requested (car icon)"));
+            emit hostUiRequested();
+        }
+        return;
+    }
+
+    if (type.contains(QStringLiteral("nowPlaying"), Qt::CaseInsensitive)
+        || params.contains(QStringLiteral("mediaItem"))
+        || params.contains(QStringLiteral("playbackStatus"))) {
+        QVariantMap item = params.value(QStringLiteral("mediaItem")).toMap();
+        if (item.isEmpty())
+            item = params;
+        const QString title = item.value(QStringLiteral("title"),
+                                         item.value(QStringLiteral("songTitle"))).toString();
+        QString artist = item.value(QStringLiteral("artist")).toString();
+        if (artist.isEmpty())
+            artist = item.value(QStringLiteral("albumArtist")).toString();
+        int durationMs = item.value(QStringLiteral("playbackDurationInMilliseconds"),
+                                    item.value(QStringLiteral("durationInMilliseconds")))
+                             .toInt();
+        if (durationMs <= 0)
+            durationMs = int(item.value(QStringLiteral("playbackDuration")).toDouble() * 1000.0);
+        int elapsedMs = params.value(QStringLiteral("elapsedTimeInMilliseconds"),
+                                     params.value(QStringLiteral("elapsedTime")))
+                            .toInt();
+        if (elapsedMs <= 0 && params.contains(QStringLiteral("elapsedTime")))
+            elapsedMs = int(params.value(QStringLiteral("elapsedTime")).toDouble() * 1000.0);
+        const int status = params.value(QStringLiteral("playbackStatus"), 1).toInt();
+        const bool playing = status == 1 || status == 2
+            || params.value(QStringLiteral("playbackRate")).toDouble() > 0.0;
+        if (!title.isEmpty() || !artist.isEmpty()) {
+            emit nowPlayingInfo(title, artist, playing, qMax(0, elapsedMs / 1000),
+                                qMax(1, durationMs / 1000));
+        }
+        return;
+    }
+
+    if (type.contains(QStringLiteral("nav"), Qt::CaseInsensitive)
+        || type.contains(QStringLiteral("turnByTurn"), Qt::CaseInsensitive)
+        || params.contains(QStringLiteral("maneuverDescription"))
+        || params.contains(QStringLiteral("destinationName"))) {
+        const QString dest = params.value(QStringLiteral("destinationName"),
+                                          params.value(QStringLiteral("destination")))
+                                 .toString();
+        QString text = params.value(QStringLiteral("maneuverDescription"),
+                                    params.value(QStringLiteral("instruction")))
+                           .toString();
+        const QString dist = params.value(QStringLiteral("distanceRemainingDisplayString"),
+                                          params.value(QStringLiteral("distanceRemaining")))
+                                 .toString();
+        if (!dist.isEmpty() && !text.contains(dist))
+            text = dist + QLatin1Char(' ') + text;
+        const QString turn = mapManeuverTurn(params.value(QStringLiteral("maneuverType"),
+                                                          params.value(QStringLiteral("maneuver"))));
+        int etaMin = params.value(QStringLiteral("etaMinutes")).toInt();
+        if (etaMin <= 0) {
+            const qint64 etaSec = params.value(QStringLiteral("timeRemaining")).toLongLong();
+            if (etaSec > 0)
+                etaMin = int((etaSec + 59) / 60);
+        }
+        const int speedLimit = params.value(QStringLiteral("speedLimit"),
+                                            params.value(QStringLiteral("currentRoadSpeedLimit")))
+                                   .toInt();
+        const bool active = !params.value(QStringLiteral("stopped")).toBool()
+            && (!text.isEmpty() || !dest.isEmpty());
+        emit navigationInfo(active, text, turn, speedLimit, etaMin, dest);
+        return;
+    }
+
+    if (type.contains(QStringLiteral("telephon"), Qt::CaseInsensitive)
+        || type.contains(QStringLiteral("call"), Qt::CaseInsensitive)
+        || params.contains(QStringLiteral("callState"))
+        || params.contains(QStringLiteral("telephony"))) {
+        QVariantMap tel = params.value(QStringLiteral("telephony")).toMap();
+        if (tel.isEmpty())
+            tel = params;
+        const int state = tel.value(QStringLiteral("callState"),
+                                    tel.value(QStringLiteral("status")))
+                              .toInt();
+        const QString name = tel.value(QStringLiteral("displayName"),
+                                       tel.value(QStringLiteral("callerName")))
+                                 .toString();
+        const QString number = tel.value(QStringLiteral("remoteID"),
+                                         tel.value(QStringLiteral("number")))
+                                   .toString();
+        // 0 idle, 1 ringing, 2 connecting, 3 active (common mapping)
+        const bool ringing = state == 1;
+        const bool active = state == 2 || state == 3 || state == 4;
+        emit telephonyInfo(active, ringing, name, number);
+        return;
+    }
+
+    if (type == QLatin1String("modesChanged")) {
+        const QVariantList appStates = params.value(QStringLiteral("appStates")).toList();
+        for (const QVariant &a : appStates) {
+            const QVariantMap am = a.toMap();
+            const qint64 id = am.value(QStringLiteral("appStateID")).toLongLong();
+            const bool on = am.value(QStringLiteral("state")).toBool()
+                || am.value(QStringLiteral("state")).toInt() > 0;
+            // INFO advertises: 1=speech, 2=phone?, 3=turnByTurn?
+            if (id == 3)
+                emit navigationInfo(on, on ? QStringLiteral("导航中") : QString(),
+                                    QStringLiteral("straight"), 0, 0, {});
+            if (id == 2)
+                emit telephonyInfo(on, false, on ? QStringLiteral("通话中") : QString(), {});
+        }
+    }
+}
+
+bool AirPlayServer::sendLocation(double latitude, double longitude, double altitude, double speedMps,
+                                 double course, double accuracy)
+{
+    if (!m_eventSock || !m_eventCipher || !m_eventCipher->isValid())
+        return false;
+    QVariantMap location;
+    location.insert(QStringLiteral("latitude"), latitude);
+    location.insert(QStringLiteral("longitude"), longitude);
+    location.insert(QStringLiteral("altitude"), altitude);
+    location.insert(QStringLiteral("speed"), speedMps >= 0.0 ? speedMps : -1.0);
+    location.insert(QStringLiteral("course"), course >= 0.0 ? course : -1.0);
+    location.insert(QStringLiteral("horizontalAccuracy"), accuracy > 0.0 ? accuracy : 25.0);
+    location.insert(QStringLiteral("verticalAccuracy"), accuracy > 0.0 ? accuracy * 1.5 : 40.0);
+    location.insert(QStringLiteral("timestamp"),
+                    QDateTime::currentDateTimeUtc().toSecsSinceEpoch());
+    QVariantMap cmd;
+    cmd.insert(QStringLiteral("type"), QStringLiteral("locationUpdate"));
+    cmd.insert(QStringLiteral("location"), location);
+    return sendEventCommand(cmd);
+}
+
+bool AirPlayServer::sendHardKey(const QString &key, bool down)
+{
+    const QString k = key.trimmed().toLower();
+    if (k == QLatin1String("home") && down) {
+        emit hostUiRequested();
+        return true;
+    }
+
+    quint8 media = 0;
+    if (k == QLatin1String("play"))
+        media = 1;
+    else if (k == QLatin1String("pause"))
+        media = 2;
+    else if (k == QLatin1String("playpause") || k == QLatin1String("play_pause"))
+        media = 3;
+    else if (k == QLatin1String("next"))
+        media = 4;
+    else if (k == QLatin1String("prev") || k == QLatin1String("previous"))
+        media = 5;
+    else if (k == QLatin1String("back"))
+        media = 6;
+
+    if (media != 0) {
+        const bool ok = sendHidReport(QStringLiteral("2a2a2a2c"),
+                                      buildMediaReport(down ? media : 0));
+        if (ok)
+            emit log(QStringLiteral("hardKey %1 down=%2").arg(k).arg(int(down)));
+        return ok;
+    }
+
+    if (k == QLatin1String("phone_accept") || k == QLatin1String("phone_end")
+        || k == QLatin1String("phone_reject")) {
+        QByteArray report(1, 0);
+        if (down) {
+            if (k == QLatin1String("phone_accept"))
+                report[0] = 0x01;
+            else
+                report[0] = 0x02;
+        }
+        const bool ok = sendHidReport(QStringLiteral("2a2a2a2d"), report);
+        if (ok)
+            emit log(QStringLiteral("hardKey %1 down=%2").arg(k).arg(int(down)));
+        return ok;
+    }
+
+    emit log(QStringLiteral("hardKey unknown %1").arg(key));
+    return false;
+}
+
 QByteArray AirPlayServer::buildTouchReport(int x, int y, bool down)
 {
     QByteArray report(12, 0);
@@ -1108,6 +1375,19 @@ QByteArray AirPlayServer::buildTouchReport(int x, int y, bool down)
     report[5] = char((y >> 8) & 0xff);
     report[6] = 1;
     return report;
+}
+
+bool AirPlayServer::flushEventOut()
+{
+    if (!m_eventSock)
+        return false;
+    while (!m_eventOut.isEmpty()) {
+        const qint64 n = m_eventSock->write(m_eventOut);
+        if (n <= 0)
+            return false;
+        m_eventOut.remove(0, int(n));
+    }
+    return true;
 }
 
 bool AirPlayServer::sendEventCommand(const QVariantMap &command)
@@ -1127,7 +1407,8 @@ bool AirPlayServer::sendEventCommand(const QVariantMap &command)
     const QByteArray packet = m_eventCipher->encrypt(head + body);
     if (packet.isEmpty())
         return false;
-    return m_eventSock->write(packet) == packet.size();
+    m_eventOut.append(packet);
+    return flushEventOut() || m_eventSock->state() == QAbstractSocket::ConnectedState;
 }
 
 bool AirPlayServer::sendTouch(double xNorm, double yNorm, bool down)
@@ -1136,23 +1417,38 @@ bool AirPlayServer::sendTouch(double xNorm, double yNorm, bool down)
         return false;
     xNorm = qBound(0.0, xNorm, 1.0);
     yNorm = qBound(0.0, yNorm, 1.0);
+    const int xMax = qMax(0, m_displayW - 1);
+    const int yMax = qMax(0, m_displayH - 1);
+    const int x = qBound(0, int(qRound(xNorm * double(xMax))), xMax);
+    const int y = qBound(0, int(qRound(yNorm * double(yMax))), yMax);
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (!down && !m_touchDown)
+        return true;
+    const bool moving = down && m_touchDown;
+    if (moving) {
+        if (x == m_lastTouchPx && y == m_lastTouchPy)
+            return true;
+        if (now - m_lastTouchSendMs < 16)
+            return true;
+    }
     m_lastTouchX = xNorm;
     m_lastTouchY = yNorm;
-    m_lastTouchMs = QDateTime::currentMSecsSinceEpoch();
-    // DiPlay: round(norm * pixels), clamp to [0, max]
-    const int x = qBound(0, int(qRound(xNorm * double(m_displayW))), m_displayW);
-    const int y = qBound(0, int(qRound(yNorm * double(m_displayH))), m_displayH);
+    m_lastTouchMs = now;
+    m_lastTouchSendMs = now;
+    m_lastTouchPx = x;
+    m_lastTouchPy = y;
     QVariantMap cmd;
     cmd.insert(QStringLiteral("type"), QStringLiteral("hidSendReport"));
     cmd.insert(QStringLiteral("uuid"), QStringLiteral("2a2a2a2a"));
     cmd.insert(QStringLiteral("hidReport"), buildTouchReport(x, y, down));
     const bool ok = sendEventCommand(cmd);
-    if (m_eventSock)
-        m_eventSock->flush();
-    if (!ok)
+    if (ok) {
+        m_touchDown = down;
+        if (!down || !moving)
+            emit log(QStringLiteral("touch %1,%2 down=%3").arg(x).arg(y).arg(int(down)));
+    } else {
         emit log(QStringLiteral("touch dropped: event not ready"));
-    else
-        emit log(QStringLiteral("touch %1,%2 down=%3").arg(x).arg(y).arg(int(down)));
+    }
     return ok;
 }
 
@@ -1164,6 +1460,10 @@ QByteArray AirPlayServer::buildInfoPlist() const
     const int physH = qMax(1, int(qRound(double(physW) * double(kH) / double(kW))));
     const QString uuid = QStringLiteral("b7e6c5a0-1111-4000-8000-000000000001");
 
+    const int safeX = qBound(0, m_safeLeft, kW - 1);
+    const int safeY = qBound(0, m_safeTop, kH - 1);
+    const int safeW = qMax(1, kW - m_safeLeft - m_safeRight);
+    const int safeH = qMax(1, kH - m_safeTop - m_safeBottom);
     auto makeArea = [&](int dockEdge) {
         return QVariantMap{
             {QStringLiteral("widthPixels"), kW},
@@ -1172,10 +1472,10 @@ QByteArray AirPlayServer::buildInfoPlist() const
             {QStringLiteral("originYPixels"), 0},
             {QStringLiteral("viewAreaStatusBarEdge"), dockEdge},
             {QStringLiteral("safeArea"),
-             QVariantMap{{QStringLiteral("widthPixels"), kW},
-                         {QStringLiteral("heightPixels"), kH},
-                         {QStringLiteral("originXPixels"), 0},
-                         {QStringLiteral("originYPixels"), 0},
+             QVariantMap{{QStringLiteral("widthPixels"), safeW},
+                         {QStringLiteral("heightPixels"), safeH},
+                         {QStringLiteral("originXPixels"), safeX},
+                         {QStringLiteral("originYPixels"), safeY},
                          {QStringLiteral("drawUIOutsideSafeArea"), true}}},
         };
     };
@@ -1296,12 +1596,16 @@ QByteArray AirPlayServer::buildInfoPlist() const
         return entry;
     };
     info.insert(QStringLiteral("audioLatencies"), QVariantList{
+        latency(96), latency(96, QStringLiteral("default")), latency(96, QStringLiteral("media")),
         latency(100), latency(100, QStringLiteral("default")), latency(100, QStringLiteral("media")),
         latency(100, QStringLiteral("telephony")), latency(100, QStringLiteral("speechRecognition")),
         latency(100, QStringLiteral("alert")), latency(101), latency(101, QStringLiteral("default")),
-        latency(102, QStringLiteral("default")), latency(103, QStringLiteral("media")),
+        latency(102, QStringLiteral("default")),
     });
     info.insert(QStringLiteral("audioFormats"), QVariantList{
+        format(96, QStringLiteral("compatibility"), pcm),
+        format(96, QStringLiteral("media"), pcm),
+        format(96, QStringLiteral("default"), pcm),
         format(100, QStringLiteral("compatibility"), pcm),
         format(101, QStringLiteral("compatibility"), pcm),
         format(100, QStringLiteral("default"), pcm | opus),
@@ -1311,9 +1615,7 @@ QByteArray AirPlayServer::buildInfoPlist() const
         format(100, QStringLiteral("speechRecognition"), pcmMono | opus),
         format(101, QStringLiteral("default"), pcm | opus),
         format(102, QStringLiteral("media"), aacLc),
-        format(103, QStringLiteral("media"), aacLc),
     });
-    info.insert(QStringLiteral("mainBufferedInfo"), QVariantMap{});
 
     info.insert(QStringLiteral("displays"), QVariantList{display});
     info.insert(QStringLiteral("hidDevices"), QVariantList{
@@ -1620,7 +1922,7 @@ QByteArray AirPlayServer::handleSetup(ClientState *client, const QByteArray &bod
                     {QStringLiteral("type"), type},
                     {QStringLiteral("dataPort"), qlonglong(dataPort)},
                 });
-            } else if (type == 100 || type == 101 || type == 102) {
+            } else if (type == 96 || type == 100 || type == 101 || type == 102) {
                 const QVariantMap audioRsp = setupAudioStream(stream, type);
                 if (!audioRsp.isEmpty())
                     responseStreams.append(audioRsp);
@@ -1666,8 +1968,6 @@ QByteArray AirPlayServer::handleSetup(ClientState *client, const QByteArray &bod
         startTimingPeer(client->socket->peerAddress(), quint16(peerTimingPort));
 
     QVariantList enabled{QStringLiteral("iAPChannel"), QStringLiteral("viewAreas")};
-    if (proposed.contains(QStringLiteral("mainBuffered")))
-        enabled.append(QStringLiteral("mainBuffered"));
     QVariantMap response;
     response.insert(QStringLiteral("timingPort"), qlonglong(m_timingPort));
     response.insert(QStringLiteral("eventPort"), qlonglong(m_eventPort));
@@ -1818,31 +2118,12 @@ void AirPlayServer::handleRequest(ClientState *client, const QByteArray &method,
             const QVariantMap params = cmd.value(QStringLiteral("params")).toMap();
             emit log(QStringLiteral("command type=%1 params=%2")
                          .arg(type, QStringList(params.keys()).join(QLatin1Char(','))));
-            if (type == QLatin1String("requestUI")) {
-                const QString url = params.value(QStringLiteral("url")).toString();
-                if (!url.startsWith(QLatin1String("videoplayback:"))) {
-                    emit log(QStringLiteral("host UI requested (car icon)"));
-                    emit hostUiRequested();
-                }
-            } else if (type == QLatin1String("modesChanged") && !params.isEmpty()) {
-                {
-                    QFile dump(QStringLiteral("airplay-modes.bplist"));
-                    if (dump.open(QIODevice::WriteOnly | QIODevice::Truncate))
-                        dump.write(body);
-                }
-                const QVariantList resources = params.value(QStringLiteral("resources")).toList();
-                for (const QVariant &r : resources) {
-                    const QVariantMap rm = r.toMap();
-                    const qint64 rid = rm.value(QStringLiteral("resourceID")).toLongLong();
-                    const qint64 entity = rm.value(QStringLiteral("entity")).toLongLong();
-                    emit log(QStringLiteral("modes resourceID=%1 entity=%2 perm=%3")
-                                 .arg(rid)
-                                 .arg(entity)
-                                 .arg(rm.value(QStringLiteral("permanentEntity")).toLongLong()));
-                    if (rid == 2 && entity == 1)
-                        emit log(QStringLiteral("audio owned by phone; waiting for audio SETUP"));
-                }
+            if (type == QLatin1String("modesChanged")) {
+                QFile dump(QStringLiteral("airplay-modes.bplist"));
+                if (dump.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                    dump.write(body);
             }
+            handleIncomingCommand(cmd);
         } else {
             emit log(QStringLiteral("command bodyHex=%1").arg(QString::fromLatin1(body.toHex())));
         }
@@ -1880,7 +2161,13 @@ void AirPlayServer::onEventNewConnection()
         m_eventCipher = std::make_unique<AirPlayControlCipher>(readKey, writeKey);
         m_eventBuf.clear();
         m_eventPlain.clear();
+        m_eventOut.clear();
+        m_touchDown = false;
+        m_lastTouchSendMs = 0;
+        m_lastTouchPx = -1;
+        m_lastTouchPy = -1;
         connect(m_eventSock, &QTcpSocket::readyRead, this, &AirPlayServer::onEventReadyRead);
+        connect(m_eventSock, &QTcpSocket::bytesWritten, this, [this](qint64) { flushEventOut(); });
         connect(m_eventSock, &QTcpSocket::disconnected, this, &AirPlayServer::onEventDisconnected);
         emit log(QStringLiteral("event connected from %1").arg(m_eventSock->peerAddress().toString()));
     }
@@ -1933,18 +2220,8 @@ void AirPlayServer::onEventReadyRead()
         const QString path = QString::fromLatin1(parts.value(1)).toLower();
         if (method == "POST" && path.endsWith(QLatin1String("/command")) && !reqBody.isEmpty()) {
             const QVariant decoded = AirPlayBplist::decode(reqBody);
-            if (decoded.canConvert<QVariantMap>()) {
-                const QVariantMap cmd = decoded.toMap();
-                const QString type = cmd.value(QStringLiteral("type")).toString();
-                if (type == QLatin1String("requestUI")) {
-                    const QVariantMap params = cmd.value(QStringLiteral("params")).toMap();
-                    const QString url = params.value(QStringLiteral("url")).toString();
-                    if (!url.startsWith(QLatin1String("videoplayback:"))) {
-                        emit log(QStringLiteral("host UI requested (car icon)"));
-                        emit hostUiRequested();
-                    }
-                }
-            }
+            if (decoded.canConvert<QVariantMap>())
+                handleIncomingCommand(decoded.toMap());
         }
         const QString protocol = QString::fromLatin1(parts.value(2, "RTSP/1.0"));
         const QString cseq = headers.value(QStringLiteral("cseq"));
@@ -1957,7 +2234,8 @@ void AirPlayServer::onEventReadyRead()
             rsp.append("\r\n");
         }
         rsp.append("Content-Length: 0\r\n\r\n");
-        m_eventSock->write(m_eventCipher->encrypt(rsp));
+        m_eventOut.append(m_eventCipher->encrypt(rsp));
+        flushEventOut();
     }
 }
 
@@ -1970,6 +2248,8 @@ void AirPlayServer::onEventDisconnected()
     m_eventCipher.reset();
     m_eventBuf.clear();
     m_eventPlain.clear();
+    m_eventOut.clear();
+    m_touchDown = false;
     emit log(QStringLiteral("event disconnected"));
 }
 
@@ -2004,7 +2284,7 @@ void AirPlayServer::onDecodedFrame(const QImage &img, const QString &err)
         pushVideoFrame(img);
         if (decoded <= 3 || (decoded % 120) == 0)
             emit log(QStringLiteral("h264 decoded #%1 %2x%3").arg(decoded).arg(img.width()).arg(img.height()));
-    } else {
+    } else if (!err.startsWith(QLatin1String("need-more"))) {
         ++dropped;
         if (dropped <= 8 || (dropped % 120) == 0)
             emit log(QStringLiteral("h264 drop #%1 err=%2").arg(dropped).arg(err));
@@ -2039,16 +2319,22 @@ void AirPlayServer::drainDecodeQueue()
             bool needFlush = false;
             {
                 QMutexLocker lock(&m_decodeMutex);
-                while (!m_decodeQueue.isEmpty()) {
-                    const QByteArray next = m_decodeQueue.dequeue();
-                    if (m_waitIdr.load()) {
-                        if (!annexBIsIdr(next))
-                            continue;
-                        m_waitIdr.store(false);
-                        needFlush = true;
+                if (!m_waitIdr.load() && m_decodeQueue.size() > 1) {
+                    frame = m_decodeQueue.takeLast();
+                    m_decodeQueue.clear();
+                } else {
+                    while (!m_decodeQueue.isEmpty()) {
+                        const QByteArray next = m_decodeQueue.dequeue();
+                        if (m_waitIdr.load()) {
+                            if (!annexBIsIdr(next))
+                                continue;
+                            m_waitIdr.store(false);
+                            needFlush = true;
+                            m_decodeQueue.clear();
+                        }
+                        frame = next;
+                        break;
                     }
-                    frame = next;
-                    break;
                 }
                 if (frame.isEmpty()) {
                     m_decodeBusy.store(false);
@@ -2072,13 +2358,19 @@ void AirPlayServer::onScreenFrame(const QByteArray &annexB)
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     if (!m_mfDecoder || annexB.isEmpty())
         return;
+    bool needKey = false;
     {
         QMutexLocker lock(&m_decodeMutex);
         if (m_decodeQueue.size() >= 3) {
             m_decodeQueue.clear();
             m_waitIdr.store(true);
+            needKey = true;
         }
         m_decodeQueue.enqueue(annexB);
+    }
+    if (needKey) {
+        emit log(QStringLiteral("decode backlog: forceKeyFrame"));
+        sendEventCommand({{QStringLiteral("type"), QStringLiteral("forceKeyFrame")}});
     }
     drainDecodeQueue();
 #else

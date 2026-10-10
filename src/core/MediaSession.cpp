@@ -226,16 +226,37 @@ MediaSession::~MediaSession()
 
 bool MediaSession::playing() const
 {
-    return m_playing;
+    return m_remoteActive ? m_remotePlaying : m_playing;
+}
+
+bool MediaSession::bluetoothMode() const
+{
+    return m_btActive && !m_remoteActive;
+}
+
+void MediaSession::setBluetoothSource(const QString &name, bool active)
+{
+    const bool was = m_btActive;
+    m_btActive = active;
+    m_btName = name;
+    updateSource();
+    if (active && !was && m_playing && !m_remoteActive)
+        pause();
 }
 
 QString MediaSession::source() const
 {
+    if (m_remoteActive)
+        return QStringLiteral("carplay");
+    if (m_btActive)
+        return m_btName.isEmpty() ? QStringLiteral("蓝牙") : m_btName;
     return m_source;
 }
 
 QString MediaSession::title() const
 {
+    if (m_remoteActive)
+        return m_remoteTitle;
     if (m_tracks.isEmpty())
         return {};
     return m_tracks.at(m_index).title;
@@ -243,6 +264,8 @@ QString MediaSession::title() const
 
 QString MediaSession::artist() const
 {
+    if (m_remoteActive)
+        return m_remoteArtist;
     if (m_tracks.isEmpty())
         return {};
     return m_tracks.at(m_index).artist;
@@ -262,14 +285,49 @@ int MediaSession::trackIndex() const
 
 int MediaSession::position() const
 {
-    return m_position;
+    return m_remoteActive ? m_remotePosition : m_position;
 }
 
 int MediaSession::duration() const
 {
+    if (m_remoteActive)
+        return qMax(1, m_remoteDuration);
     if (m_tracks.isEmpty())
         return 1;
     return m_tracks.at(m_index).duration;
+}
+
+void MediaSession::applyRemoteNowPlaying(const QString &title, const QString &artist, bool playing,
+                                         int positionSec, int durationSec)
+{
+    const bool wasPlaying = this->playing();
+    m_remoteActive = true;
+    m_remoteTitle = title;
+    m_remoteArtist = artist;
+    m_remotePlaying = playing;
+    m_remotePosition = qMax(0, positionSec);
+    m_remoteDuration = qMax(1, durationSec);
+    emit trackChanged();
+    emit positionChanged();
+    emit sourceChanged();
+    if (wasPlaying != playing)
+        emit playingChanged();
+}
+
+void MediaSession::clearRemoteNowPlaying()
+{
+    if (!m_remoteActive)
+        return;
+    const bool wasPlaying = playing();
+    m_remoteActive = false;
+    m_remotePlaying = false;
+    m_remoteTitle.clear();
+    m_remoteArtist.clear();
+    emit trackChanged();
+    emit positionChanged();
+    emit sourceChanged();
+    if (wasPlaying != m_playing)
+        emit playingChanged();
 }
 
 int MediaSession::playMode() const
@@ -378,6 +436,35 @@ void MediaSession::playIndex(int index)
 {
     ensureQueue();
     select(index, true);
+}
+
+bool MediaSession::playFile(const QString &path)
+{
+    const QFileInfo info(path);
+    if (!info.exists() || !info.isFile())
+        return false;
+    if (info.suffix().compare(QLatin1String("wav"), Qt::CaseInsensitive) != 0)
+        return false;
+    const QString abs = info.absoluteFilePath();
+    for (int i = 0; i < m_tracks.size(); ++i) {
+        if (QFileInfo(m_tracks.at(i).file).absoluteFilePath() == abs) {
+            playIndex(i);
+            return true;
+        }
+    }
+    Track track;
+    track.title = info.completeBaseName();
+    track.artist = QStringLiteral("本机");
+    track.file = abs;
+    track.color = kColors.at(m_tracks.size() % kColors.size());
+    track.duration = wavSeconds(track.file);
+    track.lyrics = loadLyrics(track.file, track.title);
+    m_tracks.push_back(track);
+    m_queue.clear();
+    ensureQueue();
+    emit tracksChanged();
+    playIndex(m_tracks.size() - 1);
+    return true;
 }
 
 void MediaSession::seek(int seconds)
@@ -582,9 +669,15 @@ void MediaSession::applyVolume()
 
 void MediaSession::updateSource()
 {
-    const QString source = m_system->bluetooth() ? QStringLiteral("蓝牙音频（未接管）") : QStringLiteral("本机");
-    if (source == m_source)
+    if (m_remoteActive || m_btActive) {
+        emit sourceChanged();
         return;
+    }
+    const QString source = QStringLiteral("本机");
+    if (source == m_source) {
+        emit sourceChanged();
+        return;
+    }
     m_source = source;
     emit sourceChanged();
 }

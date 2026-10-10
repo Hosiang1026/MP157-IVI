@@ -33,9 +33,11 @@ public:
 
     Q_INVOKABLE void dial();
     Q_INVOKABLE void dialNumber(const QString &number);
+    Q_INVOKABLE void answer();
     Q_INVOKABLE void hangup();
     Q_INVOKABLE void toggleMuted();
     Q_INVOKABLE void toggleSpeaker();
+    Q_INVOKABLE void applyRemote(bool active, bool ringing, const QString &name, const QString &number);
 
 signals:
     void activeChanged();

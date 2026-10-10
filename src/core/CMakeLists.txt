@@ -13,6 +13,9 @@ add_library(ivi-core STATIC
     WeatherService.cpp
     DlnaRenderer.cpp
     FfmpegUrlPlayer.cpp
+    RadioSession.cpp
+    FileBrowser.cpp
+    GpsSource.cpp
     UpdateService.cpp
 )
 

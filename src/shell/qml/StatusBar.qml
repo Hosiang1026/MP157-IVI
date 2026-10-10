@@ -10,14 +10,31 @@ Item {
     readonly property int barH: 40
     readonly property int trayH: 72
     readonly property int fontMain: 17
-    readonly property int fontHub: 18
-    readonly property int fontSmall: 14
     height: barH
     signal openApp(string entry)
     signal dismissApp(string id)
     readonly property bool wifiUp: SystemState.wifi && SystemState.wifiName.length > 0
-    readonly property color ink: darkContent ? "#000000" : "#FFFFFF"
+    readonly property bool lightInk: darkContent ? SystemState.dark : WallpaperStore.darkBackdrop
+    readonly property color ink: darkContent
+                                 ? SystemState.ink
+                                 : (WallpaperStore.darkBackdrop ? "#FFFFFF" : "#000000")
+    readonly property color mute: darkContent
+                                  ? SystemState.secondary
+                                  : (WallpaperStore.darkBackdrop ? "#EBEBF5" : "#3C3C43")
+    readonly property bool raisedInk: !darkContent && WallpaperStore.darkBackdrop
+    readonly property bool callLive: CallSession.active || CallSession.ringing
     readonly property bool navLive: NavSession.active
+    readonly property bool vehicleAlert: VehicleState.alertCount > 0
+    readonly property bool muted: SystemState.volume <= 0.001
+    readonly property int batteryPct: {
+        const v = VehicleState.batteryVoltage
+        const lo = 11.8
+        const hi = 12.6
+        return Math.round(Math.max(0, Math.min(100, (v - lo) / (hi - lo) * 100)))
+    }
+    readonly property bool linkCarPlay: CarPlaySession.running
+    readonly property bool linkAirPlay: AirPlayMirror.hasVideo
+    readonly property bool linkAA: AndroidAutoSession.running
     readonly property bool musicAppOpen: {
         for (let i = 0; i < runningAll.length; ++i) {
             if (runningAll[i].appId === "music")
@@ -25,8 +42,8 @@ Item {
         }
         return false
     }
-    readonly property bool musicLive: MediaSession.playing && musicAppOpen
-    readonly property string mode: navLive ? "nav" : (musicLive ? "music" : "")
+    readonly property bool musicLive: MediaSession.playing && (musicAppOpen || MediaSession.source === "carplay")
+    readonly property string mode: callLive ? "call" : (navLive ? "nav" : (musicLive ? "music" : (vehicleAlert ? "alert" : "")))
     function lyricLines() {
         const src = MediaSession.lyrics
         const out = []
@@ -76,6 +93,28 @@ Item {
             root.openApp(info.entry)
     }
 
+    function carPlayPulse(key) {
+        if (!CarPlaySession.running)
+            return false
+        CarPlaySession.sendHardKey(key, true)
+        CarPlaySession.sendHardKey(key, false)
+        return true
+    }
+
+    function acceptCall() {
+        if (root.carPlayPulse("phone_accept"))
+            return
+        CallSession.answer()
+    }
+
+    function endCall() {
+        if (CallSession.ringing)
+            root.carPlayPulse("phone_reject")
+        else
+            root.carPlayPulse("phone_end")
+        CallSession.hangup()
+    }
+
     onRunningAllChanged: {
         if (runningAll.length === 0)
             drawerOpen = false
@@ -107,78 +146,156 @@ Item {
             color: root.ink
             font.pixelSize: root.fontMain
             font.weight: Font.DemiBold
-            style: root.darkContent ? Text.Normal : Text.Raised
+            style: root.raisedInk ? Text.Raised : Text.Normal
             styleColor: "#4D000000"
         }
 
         Text {
             id: city
-            visible: root.mode === "" && Weather.place.length > 0
+            visible: Weather.place.length > 0
             text: Weather.place
             color: root.ink
             font.pixelSize: root.fontMain
-            font.weight: Font.Medium
-            style: root.darkContent ? Text.Normal : Text.Raised
+            font.weight: Font.DemiBold
+            style: root.raisedInk ? Text.Raised : Text.Normal
             styleColor: "#4D000000"
-        }
-
-        Text {
-            id: sky
-            visible: root.mode === "" && Weather.condition.length > 0
-            text: Weather.condition
-            color: root.ink
-            font.pixelSize: root.fontMain
-            font.weight: Font.Medium
-            style: root.darkContent ? Text.Normal : Text.Raised
-            styleColor: "#4D000000"
-        }
-
-        Text {
-            id: temp
-            visible: root.mode === "" && Weather.condition.length > 0
-            text: Weather.temperature + "°"
-            color: root.ink
-            font.pixelSize: root.fontMain
-            font.weight: Font.Medium
-            style: root.darkContent ? Text.Normal : Text.Raised
-            styleColor: "#4D000000"
-        }
-
-        Text {
-            id: travelAlert
-            visible: Weather.travelAlert.length > 0
-            width: visible ? (root.mode === "" ? 240 : 160) : 0
-            text: Weather.travelAlert
-            elide: Text.ElideRight
-            color: root.darkContent ? "#B71C1C" : "#FFEBEE"
-            font.pixelSize: root.fontSmall
-            font.bold: true
-            style: root.darkContent ? Text.Normal : Text.Raised
-            styleColor: "#66000000"
             MouseArea {
                 anchors.fill: parent
                 onClicked: root.openById("weather")
             }
         }
 
-        Rectangle {
-            visible: CallSession.active
-            width: visible ? callText.width + 18 : 0
+        Canvas {
+            id: wxIcon
+            width: 22
             height: 22
-            radius: 11
-            color: "#30D158"
-            Text {
-                id: callText
-                anchors.centerIn: parent
-                text: "通话"
-                color: "#FFFFFF"
-                font.pixelSize: 13
+            visible: Weather.condition.length > 0 || Weather.kind.length > 0
+            anchors.verticalCenter: parent.verticalCenter
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.reset()
+                ctx.clearRect(0, 0, width, height)
+                ctx.imageSmoothingEnabled = true
+                const s = Math.min(width, height)
+                const cx = width * 0.5
+                const cy = height * 0.5
+                const k = Weather.kind
+                const day = Weather.day
+                const rain = k === "rain" || k === "rainMid" || k === "rainHard" || k === "thunder"
+                             || k === "ponding" || k === "sleet" || k === "freezeRain" || k === "typhoon"
+                const snow = k === "snow" || k === "snowMid" || k === "snowHard" || k === "blizzard" || k === "hail"
+                const cloud = k === "cloudy" || k === "overcast" || k === "fog" || k === "haze"
+                              || k === "dust" || k === "sandLift" || k === "wetRoad" || k === "wind" || rain || snow
+                if (!cloud) {
+                    ctx.fillStyle = day ? "#FFD60A" : root.ink
+                    ctx.strokeStyle = day ? "#FFD60A" : root.ink
+                    ctx.beginPath()
+                    ctx.arc(cx, cy, s * 0.22, 0, Math.PI * 2)
+                    ctx.fill()
+                    if (day) {
+                        ctx.lineWidth = s * 0.08
+                        ctx.lineCap = "round"
+                        for (let i = 0; i < 8; ++i) {
+                            const a = -Math.PI / 2 + i * Math.PI / 4
+                            ctx.beginPath()
+                            ctx.moveTo(cx + Math.cos(a) * s * 0.32, cy + Math.sin(a) * s * 0.32)
+                            ctx.lineTo(cx + Math.cos(a) * s * 0.44, cy + Math.sin(a) * s * 0.44)
+                            ctx.stroke()
+                        }
+                    } else {
+                        ctx.globalCompositeOperation = "destination-out"
+                        ctx.beginPath()
+                        ctx.arc(cx + s * 0.12, cy - s * 0.06, s * 0.2, 0, Math.PI * 2)
+                        ctx.fill()
+                        ctx.globalCompositeOperation = "source-over"
+                    }
+                } else {
+                    if (day && (k === "cloudy" || k === "wind")) {
+                        ctx.fillStyle = "#FFD60A"
+                        ctx.beginPath()
+                        ctx.arc(cx + s * 0.18, cy - s * 0.16, s * 0.14, 0, Math.PI * 2)
+                        ctx.fill()
+                    }
+                    ctx.fillStyle = root.ink
+                    ctx.globalAlpha = root.raisedInk ? 0.92 : 0.88
+                    ctx.beginPath()
+                    ctx.arc(cx - s * 0.12, cy + s * 0.02, s * 0.16, 0, Math.PI * 2)
+                    ctx.arc(cx + s * 0.02, cy - s * 0.04, s * 0.18, 0, Math.PI * 2)
+                    ctx.arc(cx + s * 0.16, cy + s * 0.02, s * 0.14, 0, Math.PI * 2)
+                    ctx.rect(cx - s * 0.28, cy + s * 0.02, s * 0.56, s * 0.16)
+                    ctx.fill()
+                    ctx.globalAlpha = 1
+                    if (rain) {
+                        ctx.strokeStyle = root.lightInk ? "#64D2FF" : "#007AFF"
+                        ctx.lineWidth = s * 0.07
+                        ctx.lineCap = "round"
+                        for (let i = 0; i < 3; ++i) {
+                            const x = cx - s * 0.12 + i * s * 0.12
+                            ctx.beginPath()
+                            ctx.moveTo(x, cy + s * 0.22)
+                            ctx.lineTo(x - s * 0.04, cy + s * 0.38)
+                            ctx.stroke()
+                        }
+                    } else if (snow) {
+                        ctx.fillStyle = root.ink
+                        for (let i = 0; i < 3; ++i) {
+                            ctx.beginPath()
+                            ctx.arc(cx - s * 0.1 + i * s * 0.12, cy + s * 0.3, s * 0.045, 0, Math.PI * 2)
+                            ctx.fill()
+                        }
+                    }
+                }
+            }
+            Connections {
+                target: Weather
+                function onUpdated() { wxIcon.requestPaint() }
+            }
+            Connections {
+                target: root
+                function onInkChanged() { wxIcon.requestPaint() }
+                function onLightInkChanged() { wxIcon.requestPaint() }
+                function onRaisedInkChanged() { wxIcon.requestPaint() }
+                function onDarkContentChanged() { wxIcon.requestPaint() }
             }
             MouseArea {
                 anchors.fill: parent
-                onClicked: root.openById("phone")
+                anchors.margins: -4
+                onClicked: root.openById("weather")
             }
         }
+
+        Text {
+            id: temp
+            visible: Weather.condition.length > 0 || Weather.kind.length > 0
+            text: Weather.temperature + "°"
+            color: root.ink
+            font.pixelSize: root.fontMain
+            font.weight: Font.DemiBold
+            style: root.raisedInk ? Text.Raised : Text.Normal
+            styleColor: "#4D000000"
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.openById("weather")
+            }
+        }
+
+        Text {
+            id: travelAlert
+            visible: Weather.travelAlert.length > 0
+            width: visible ? (root.mode === "" || root.mode === "alert" ? 240 : 160) : 0
+            text: Weather.travelAlert
+            elide: Text.ElideRight
+            color: root.lightInk ? "#FFEBEE" : "#B71C1C"
+            font.pixelSize: root.fontMain
+            font.weight: Font.DemiBold
+            style: root.raisedInk ? Text.Raised : Text.Normal
+            styleColor: "#4D000000"
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.openById("weather")
+            }
+        }
+
     }
 
     }
@@ -268,12 +385,14 @@ Item {
                     const text = lyricMetrics.elidedText || lyricMetrics.text || ""
                     if (!text.length || text === "undefined")
                         return
-                    ctx.font = "600 " + root.fontHub + "px sans-serif"
+                    ctx.font = "600 " + root.fontMain + "px sans-serif"
                     ctx.textAlign = "left"
                     ctx.textBaseline = "middle"
                     const y = height * 0.5
-                    const played = root.darkContent ? "#FF2D55" : "#FF375F"
-                    const rest = root.darkContent ? "#3A3A3C" : "#99FFFFFF"
+                    const played = root.lightInk ? "#FF375F" : "#FF2D55"
+                    const rest = root.raisedInk ? "#99FFFFFF"
+                               : root.lightInk ? SystemState.secondary
+                               : (root.darkContent ? SystemState.secondary : "#99000000")
                     const p = Math.max(0, Math.min(1, musicRow.wipe))
                     const g = ctx.createLinearGradient(0, 0, width, 0)
                     const edge = 0.06
@@ -282,6 +401,12 @@ Item {
                     g.addColorStop(Math.min(1, p + edge), rest)
                     g.addColorStop(1, rest)
                     ctx.fillStyle = g
+                    if (root.raisedInk) {
+                        ctx.shadowColor = "#4D000000"
+                        ctx.shadowBlur = 0
+                        ctx.shadowOffsetX = 0
+                        ctx.shadowOffsetY = 1
+                    }
                     ctx.fillText(text, 0, y)
                 }
                 onWidthChanged: requestPaint()
@@ -290,10 +415,14 @@ Item {
                 id: lyricMetrics
                 visible: false
                 text: root.hubMusicText
-                font.pixelSize: root.fontHub
+                font.pixelSize: root.fontMain
                 font.weight: Font.DemiBold
                 width: lyricPaint.maxW
                 elide: Text.ElideRight
+            }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.openById("music")
             }
             Connections {
                 target: root
@@ -304,11 +433,98 @@ Item {
                     lyricPaint.requestPaint()
                 }
                 function onDarkContentChanged() { lyricPaint.requestPaint() }
+                function onInkChanged() { lyricPaint.requestPaint() }
+                function onLightInkChanged() { lyricPaint.requestPaint() }
+                function onRaisedInkChanged() { lyricPaint.requestPaint() }
                 function onLyricProgressChanged() { musicRow.wipe = root.lyricProgress }
             }
-            MouseArea {
-                anchors.fill: parent
-                onClicked: root.openById("music")
+        }
+
+        Item {
+            id: callRow
+            visible: root.mode === "call"
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter: parent.verticalCenter
+            height: 30
+            width: callChip.width
+            Rectangle {
+                id: callChip
+                width: callInner.width + 18
+                height: 30
+                radius: 15
+                color: SystemState.dark ? "#661C1C1E" : (root.darkContent ? "#99F2F2F7" : "#80F2F2F7")
+                border.color: SystemState.separator
+                border.width: 0.5
+                Row {
+                    id: callInner
+                    anchors.centerIn: parent
+                    spacing: 8
+                    Rectangle {
+                        width: 8
+                        height: 8
+                        radius: 4
+                        color: CallSession.ringing ? "#FF9F0A" : "#30D158"
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Text {
+                        text: {
+                            const name = CallSession.contactName || CallSession.number || "通话"
+                            return CallSession.ringing ? ("来电 · " + name) : ("通话中 · " + name)
+                        }
+                        color: root.ink
+                        font.pixelSize: root.fontMain
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
+                        width: Math.min(implicitWidth, root.width - leftRow.width - statusRight.width - 160)
+                        style: root.raisedInk ? Text.Raised : Text.Normal
+                        styleColor: "#4D000000"
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: root.openById("phone")
+                        }
+                    }
+                    Rectangle {
+                        visible: CallSession.ringing
+                        width: 52
+                        height: 22
+                        radius: 11
+                        color: "#CC30D158"
+                        border.color: "#40FFFFFF"
+                        border.width: 0.5
+                        anchors.verticalCenter: parent.verticalCenter
+                        Text {
+                            anchors.centerIn: parent
+                            text: "接听"
+                            color: "#FFFFFF"
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: root.acceptCall()
+                        }
+                    }
+                    Rectangle {
+                        width: 52
+                        height: 22
+                        radius: 11
+                        color: "#CCFF3B30"
+                        border.color: "#40FFFFFF"
+                        border.width: 0.5
+                        anchors.verticalCenter: parent.verticalCenter
+                        Text {
+                            anchors.centerIn: parent
+                            text: CallSession.ringing ? "拒接" : "挂断"
+                            color: "#FFFFFF"
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: root.endCall()
+                        }
+                    }
+                }
             }
         }
 
@@ -334,7 +550,7 @@ Item {
                             const ctx = getContext("2d")
                             ctx.reset()
                             ctx.imageSmoothingEnabled = true
-                            const accent = root.darkContent ? "#248A3D" : "#30D158"
+                            const accent = root.lightInk ? "#30D158" : "#248A3D"
                             ctx.strokeStyle = accent
                             ctx.fillStyle = accent
                             ctx.lineCap = "round"
@@ -382,6 +598,8 @@ Item {
                         Connections {
                             target: root
                             function onDarkContentChanged() { arrow.requestPaint() }
+                            function onLightInkChanged() { arrow.requestPaint() }
+                            function onInkChanged() { arrow.requestPaint() }
                         }
                     }
                     Text {
@@ -391,9 +609,9 @@ Item {
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
                         color: root.ink
-                        font.pixelSize: root.fontHub
+                        font.pixelSize: root.fontMain
                         font.weight: Font.DemiBold
-                        style: root.darkContent ? Text.Normal : Text.Raised
+                        style: root.raisedInk ? Text.Raised : Text.Normal
                         styleColor: "#4D000000"
                     }
                 }
@@ -401,6 +619,34 @@ Item {
                     anchors.fill: parent
                     onClicked: root.openById("map")
                 }
+            }
+        }
+
+        Item {
+            id: alertRow
+            visible: root.mode === "alert"
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter: parent.verticalCenter
+            height: root.barH
+            readonly property real maxW: Math.max(40, root.width - leftRow.width - statusRight.width - 32)
+            width: Math.min(alertLabel.implicitWidth, maxW)
+
+            Text {
+                id: alertLabel
+                anchors.centerIn: parent
+                width: parent.width
+                text: VehicleState.alertText
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+                color: VehicleState.alertColor
+                font.pixelSize: root.fontMain
+                font.weight: Font.DemiBold
+                style: root.raisedInk ? Text.Raised : Text.Normal
+                styleColor: "#4D000000"
+            }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.openById("vehicle")
             }
         }
     }
@@ -416,62 +662,290 @@ Item {
 
         Row {
             visible: root.navLive
-            spacing: 0
+            spacing: 8
             anchors.verticalCenter: parent.verticalCenter
-            Text {
-                text: VehicleState.speed + " km/h "
-                color: VehicleState.speed > NavSession.speedLimit ? "#FF3B30" : root.ink
-                font.pixelSize: root.fontMain
-                font.weight: Font.DemiBold
-                style: root.darkContent ? Text.Normal : Text.Raised
-                styleColor: "#4D000000"
+
+            Item {
+                id: speedGauge
+                width: 44
+                height: 32
+                anchors.verticalCenter: parent.verticalCenter
+                readonly property bool over: VehicleState.speed > NavSession.speedLimit
+                readonly property real ratio: {
+                    const lim = Math.max(30, NavSession.speedLimit)
+                    return Math.max(0, Math.min(1.15, VehicleState.speed / lim))
+                }
+
+                Canvas {
+                    id: speedArc
+                    anchors.fill: parent
+                    onPaint: {
+                        const ctx = getContext("2d")
+                        ctx.reset()
+                        ctx.clearRect(0, 0, width, height)
+                        ctx.imageSmoothingEnabled = true
+                        const cx = width * 0.5
+                        const cy = height * 0.72
+                        const r = 15.5
+                        const a0 = Math.PI * 1.12
+                        const a1 = Math.PI * 1.88
+                        const span = a1 - a0
+                        ctx.lineCap = "round"
+                        ctx.lineWidth = 3.2
+                        ctx.strokeStyle = root.mute
+                        ctx.globalAlpha = root.raisedInk ? 0.35 : 0.55
+                        ctx.beginPath()
+                        ctx.arc(cx, cy, r, a0, a1)
+                        ctx.stroke()
+                        ctx.globalAlpha = 1
+                        const p = Math.max(0, Math.min(1, speedGauge.ratio))
+                        const accent = speedGauge.over ? "#FF3B30" : (root.lightInk ? "#30D158" : "#248A3D")
+                        ctx.strokeStyle = accent
+                        ctx.beginPath()
+                        ctx.arc(cx, cy, r, a0, a0 + span * p)
+                        ctx.stroke()
+                    }
+                    Connections {
+                        target: VehicleState
+                        function onChanged() { speedArc.requestPaint() }
+                    }
+                    Connections {
+                        target: NavSession
+                        function onStepChanged() { speedArc.requestPaint() }
+                    }
+                    Connections {
+                        target: root
+                        function onInkChanged() { speedArc.requestPaint() }
+                        function onMuteChanged() { speedArc.requestPaint() }
+                        function onLightInkChanged() { speedArc.requestPaint() }
+                        function onRaisedInkChanged() { speedArc.requestPaint() }
+                        function onDarkContentChanged() { speedArc.requestPaint() }
+                    }
+                }
+
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 1
+                    text: "" + VehicleState.speed
+                    color: speedGauge.over ? "#FF3B30" : root.ink
+                    font.pixelSize: 15
+                    font.weight: Font.Bold
+                    style: root.raisedInk ? Text.Raised : Text.Normal
+                    styleColor: "#4D000000"
+                }
             }
-            Text {
-                text: "限速" + NavSession.speedLimit
-                color: root.ink
-                font.pixelSize: root.fontMain
-                font.weight: Font.DemiBold
-                style: root.darkContent ? Text.Normal : Text.Raised
-                styleColor: "#4D000000"
+
+            Item {
+                width: 28
+                height: 28
+                anchors.verticalCenter: parent.verticalCenter
+                Rectangle {
+                    anchors.fill: parent
+                    radius: width / 2
+                    color: "#FFFFFF"
+                    border.color: speedGauge.over ? "#FF3B30" : "#E53935"
+                    border.width: 2.6
+                }
+                Text {
+                    anchors.centerIn: parent
+                    text: "" + NavSession.speedLimit
+                    color: "#111111"
+                    font.pixelSize: NavSession.speedLimit >= 100 ? 11 : 13
+                    font.weight: Font.Bold
+                }
             }
         }
 
         Canvas {
-            id: loc
-            width: 14
-            height: 17
-            visible: NavSession.active
+            id: cpIcon
+            width: 20
+            height: 18
+            visible: root.linkCarPlay
             anchors.verticalCenter: parent.verticalCenter
             onPaint: {
                 const ctx = getContext("2d")
+                ctx.reset()
                 ctx.clearRect(0, 0, width, height)
-                ctx.imageSmoothingEnabled = true
-                const cx = width * 0.5
-                const bulbY = height * 0.45
-                const r = width * 0.34
+                const s = Math.min(width, height)
+                const ox = (width - s) / 2
+                const oy = (height - s) / 2
+                ctx.translate(ox, oy)
                 ctx.fillStyle = root.ink
-                ctx.globalAlpha = 0.92
                 ctx.beginPath()
-                ctx.moveTo(cx, height - 0.2)
-                ctx.lineTo(cx - r, bulbY)
-                ctx.arc(cx, bulbY, r, Math.PI, 0)
-                ctx.lineTo(cx + r, bulbY)
+                ctx.moveTo(s * 0.18, s * 0.56)
+                ctx.lineTo(s * 0.26, s * 0.38)
+                ctx.quadraticCurveTo(s * 0.34, s * 0.24, s * 0.50, s * 0.22)
+                ctx.quadraticCurveTo(s * 0.66, s * 0.24, s * 0.74, s * 0.38)
+                ctx.lineTo(s * 0.82, s * 0.56)
+                ctx.quadraticCurveTo(s * 0.84, s * 0.62, s * 0.78, s * 0.66)
+                ctx.lineTo(s * 0.22, s * 0.66)
+                ctx.quadraticCurveTo(s * 0.16, s * 0.62, s * 0.18, s * 0.56)
                 ctx.closePath()
                 ctx.fill()
                 ctx.globalCompositeOperation = "destination-out"
                 ctx.beginPath()
-                ctx.arc(cx, bulbY - 0.05, r * 0.34, 0, Math.PI * 2)
+                ctx.moveTo(s * 0.34, s * 0.36)
+                ctx.quadraticCurveTo(s * 0.40, s * 0.30, s * 0.50, s * 0.29)
+                ctx.quadraticCurveTo(s * 0.60, s * 0.30, s * 0.66, s * 0.36)
+                ctx.lineTo(s * 0.62, s * 0.48)
+                ctx.lineTo(s * 0.38, s * 0.48)
+                ctx.closePath()
+                ctx.fill()
+                ctx.beginPath()
+                ctx.arc(s * 0.30, s * 0.58, s * 0.04, 0, Math.PI * 2)
+                ctx.arc(s * 0.70, s * 0.58, s * 0.04, 0, Math.PI * 2)
                 ctx.fill()
                 ctx.globalCompositeOperation = "source-over"
-                ctx.globalAlpha = 1
-            }
-            Connections {
-                target: Weather
-                function onUpdated() { loc.requestPaint() }
+                ctx.beginPath()
+                ctx.moveTo(s * 0.22, s * 0.66)
+                ctx.lineTo(s * 0.26, s * 0.78)
+                ctx.quadraticCurveTo(s * 0.30, s * 0.84, s * 0.38, s * 0.84)
+                ctx.lineTo(s * 0.62, s * 0.84)
+                ctx.quadraticCurveTo(s * 0.70, s * 0.84, s * 0.74, s * 0.78)
+                ctx.lineTo(s * 0.78, s * 0.66)
+                ctx.closePath()
+                ctx.fill()
             }
             Connections {
                 target: root
-                function onDarkContentChanged() { loc.requestPaint() }
+                function onInkChanged() { cpIcon.requestPaint() }
+                function onLinkCarPlayChanged() { cpIcon.requestPaint() }
+                function onDarkContentChanged() { cpIcon.requestPaint() }
+            }
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -4
+                onClicked: root.openById("carplay")
+            }
+        }
+
+        Canvas {
+            id: aaIcon
+            width: 18
+            height: 18
+            visible: root.linkAA
+            anchors.verticalCenter: parent.verticalCenter
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.reset()
+                ctx.clearRect(0, 0, width, height)
+                const s = Math.min(width, height)
+                ctx.fillStyle = root.ink
+                ctx.beginPath()
+                ctx.moveTo(s * 0.50, s * 0.10)
+                ctx.lineTo(s * 0.86, s * 0.72)
+                ctx.quadraticCurveTo(s * 0.88, s * 0.80, s * 0.78, s * 0.80)
+                ctx.lineTo(s * 0.22, s * 0.80)
+                ctx.quadraticCurveTo(s * 0.12, s * 0.80, s * 0.14, s * 0.72)
+                ctx.closePath()
+                ctx.fill()
+                ctx.globalCompositeOperation = "destination-out"
+                ctx.beginPath()
+                ctx.moveTo(s * 0.50, s * 0.28)
+                ctx.lineTo(s * 0.70, s * 0.64)
+                ctx.lineTo(s * 0.30, s * 0.64)
+                ctx.closePath()
+                ctx.fill()
+                ctx.globalCompositeOperation = "source-over"
+                ctx.beginPath()
+                ctx.arc(s * 0.34, s * 0.90, s * 0.05, 0, Math.PI * 2)
+                ctx.arc(s * 0.66, s * 0.90, s * 0.05, 0, Math.PI * 2)
+                ctx.fill()
+            }
+            Connections {
+                target: root
+                function onInkChanged() { aaIcon.requestPaint() }
+                function onLinkAAChanged() { aaIcon.requestPaint() }
+                function onDarkContentChanged() { aaIcon.requestPaint() }
+            }
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -4
+                onClicked: root.openById("androidauto")
+            }
+        }
+
+        Canvas {
+            id: airLink
+            width: 16
+            height: 16
+            visible: root.linkAirPlay
+            anchors.verticalCenter: parent.verticalCenter
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                ctx.strokeStyle = root.ink
+                ctx.fillStyle = root.ink
+                ctx.lineWidth = 1.6
+                ctx.lineCap = "round"
+                ctx.beginPath()
+                ctx.moveTo(2.5, 6.2)
+                ctx.quadraticCurveTo(8, 1.2, 13.5, 6.2)
+                ctx.stroke()
+                ctx.beginPath()
+                ctx.moveTo(4.5, 8.2)
+                ctx.quadraticCurveTo(8, 4.6, 11.5, 8.2)
+                ctx.stroke()
+                ctx.beginPath()
+                ctx.moveTo(8, 14.5)
+                ctx.lineTo(4.2, 9.6)
+                ctx.quadraticCurveTo(8, 10.2, 11.8, 9.6)
+                ctx.closePath()
+                ctx.fill()
+            }
+            Connections {
+                target: root
+                function onInkChanged() { airLink.requestPaint() }
+                function onDarkContentChanged() { airLink.requestPaint() }
+                function onLinkAirPlayChanged() { airLink.requestPaint() }
+            }
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -4
+                onClicked: root.openById("airplay")
+            }
+        }
+
+        Canvas {
+            id: muteIcon
+            width: 18
+            height: 16
+            visible: root.muted
+            anchors.verticalCenter: parent.verticalCenter
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                ctx.fillStyle = root.ink
+                ctx.strokeStyle = root.ink
+                ctx.lineWidth = 1.7
+                ctx.lineCap = "round"
+                ctx.beginPath()
+                ctx.moveTo(1.5, 5.2)
+                ctx.lineTo(5.2, 5.2)
+                ctx.lineTo(10.2, 2.2)
+                ctx.lineTo(10.2, 13.8)
+                ctx.lineTo(5.2, 10.8)
+                ctx.lineTo(1.5, 10.8)
+                ctx.closePath()
+                ctx.fill()
+                ctx.beginPath()
+                ctx.moveTo(12.8, 4.2)
+                ctx.lineTo(16.5, 11.8)
+                ctx.moveTo(16.5, 4.2)
+                ctx.lineTo(12.8, 11.8)
+                ctx.stroke()
+            }
+            Connections {
+                target: root
+                function onInkChanged() { muteIcon.requestPaint() }
+                function onDarkContentChanged() { muteIcon.requestPaint() }
+                function onMutedChanged() { muteIcon.requestPaint() }
+            }
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -4
+                onClicked: root.openById("settings")
             }
         }
 
@@ -487,7 +961,7 @@ Item {
                 const cx = width * 0.5
                 const cy = height - 1.2
                 const active = root.ink
-                const idle = root.darkContent ? "#3C3C43" : "#EBEBF5"
+                const idle = root.mute
                 const up = root.wifiUp
                 const level = up ? SystemState.wifiSignal : 0
                 const a0 = Math.PI * 1.22
@@ -495,10 +969,11 @@ Item {
                 ctx.lineCap = "round"
                 ctx.lineWidth = 2.2
                 const arcs = [5.0, 8.8, 12.6]
+                const dim = root.raisedInk ? (SystemState.wifi ? 0.32 : 0.45) : (SystemState.wifi ? 0.75 : 0.55)
                 for (let i = 0; i < arcs.length; ++i) {
                     const lit = up && level >= i + 1
                     ctx.strokeStyle = lit ? active : idle
-                    ctx.globalAlpha = lit ? 1 : (SystemState.wifi ? 0.32 : 0.45)
+                    ctx.globalAlpha = lit ? 1 : dim
                     ctx.beginPath()
                     ctx.arc(cx, cy, arcs[i], a0, a1)
                     ctx.stroke()
@@ -506,7 +981,7 @@ Item {
                 ctx.globalAlpha = 1
                 const dotOn = up && level >= 1
                 ctx.fillStyle = dotOn ? active : idle
-                ctx.globalAlpha = dotOn ? 1 : (SystemState.wifi ? 0.32 : 0.45)
+                ctx.globalAlpha = dotOn ? 1 : dim
                 ctx.beginPath()
                 ctx.arc(cx, cy, 1.7, 0, Math.PI * 2)
                 ctx.fill()
@@ -521,10 +996,8 @@ Item {
             Connections {
                 target: root
                 function onDarkContentChanged() { wifi.requestPaint() }
-            }
-            Connections {
-                target: SystemState
-                function onDarkChanged() { wifi.requestPaint() }
+                function onInkChanged() { wifi.requestPaint() }
+                function onMuteChanged() { wifi.requestPaint() }
             }
             MouseArea {
                 anchors.fill: parent
@@ -544,9 +1017,9 @@ Item {
                 ctx.imageSmoothingEnabled = true
                 const on = SystemState.bluetooth
                 const active = root.ink
-                const idle = root.darkContent ? "#3C3C43" : "#EBEBF5"
+                const idle = root.mute
                 ctx.strokeStyle = on ? active : idle
-                ctx.globalAlpha = on ? 1 : 0.42
+                ctx.globalAlpha = on ? 1 : (root.raisedInk ? 0.42 : 0.7)
                 ctx.lineWidth = 1.9
                 ctx.lineCap = "round"
                 ctx.lineJoin = "round"
@@ -580,10 +1053,8 @@ Item {
             Connections {
                 target: root
                 function onDarkContentChanged() { bt.requestPaint() }
-            }
-            Connections {
-                target: SystemState
-                function onDarkChanged() { bt.requestPaint() }
+                function onInkChanged() { bt.requestPaint() }
+                function onMuteChanged() { bt.requestPaint() }
             }
             MouseArea {
                 anchors.fill: parent
@@ -608,10 +1079,10 @@ Item {
                     anchors.left: parent.left
                     anchors.leftMargin: 2
                     anchors.verticalCenter: parent.verticalCenter
-                    width: Math.max(1, 22 * (SystemState.battery < 0 ? 100 : SystemState.battery) / 100)
+                    width: Math.max(1, 22 * root.batteryPct / 100)
                     height: 9
                     radius: 1.5
-                    color: SystemState.battery >= 0 && SystemState.battery <= 20 ? "#FF3B30" : root.ink
+                    color: (root.batteryPct <= 20 || VehicleState.batteryLow) ? "#FF3B30" : root.ink
                 }
             }
             Rectangle {
@@ -625,9 +1096,10 @@ Item {
             MouseArea {
                 anchors.fill: parent
                 anchors.margins: -4
-                onClicked: root.openById("settings")
+                onClicked: root.openById("vehicle")
             }
         }
+
     }
 
 }

@@ -26,7 +26,15 @@ class SystemState : public QObject {
     Q_PROPERTY(QString secondary READ secondary NOTIFY darkChanged)
     Q_PROPERTY(QString fill READ fill NOTIFY darkChanged)
     Q_PROPERTY(QString highlight READ highlight NOTIFY darkChanged)
+    Q_PROPERTY(QString tint READ tint NOTIFY darkChanged)
+    Q_PROPERTY(QString separator READ separator NOTIFY darkChanged)
+    Q_PROPERTY(QString selected READ selected NOTIFY darkChanged)
+    Q_PROPERTY(QString elevated READ elevated NOTIFY darkChanged)
+    Q_PROPERTY(QString danger READ danger CONSTANT)
+    Q_PROPERTY(QString success READ success CONSTANT)
+    Q_PROPERTY(QString warning READ warning CONSTANT)
     Q_PROPERTY(bool developerMode READ developerMode WRITE setDeveloperMode NOTIFY developerModeChanged)
+    Q_PROPERTY(int lockTimeout READ lockTimeout WRITE setLockTimeout NOTIFY lockTimeoutChanged)
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
 public:
     explicit SystemState(QObject *parent = nullptr);
@@ -54,8 +62,17 @@ public:
     QString secondary() const;
     QString fill() const;
     QString highlight() const;
+    QString tint() const;
+    QString separator() const;
+    QString selected() const;
+    QString elevated() const;
+    QString danger() const;
+    QString success() const;
+    QString warning() const;
     bool developerMode() const;
     void setDeveloperMode(bool value);
+    int lockTimeout() const;
+    void setLockTimeout(int minutes);
     QString appVersion() const;
 
     Q_INVOKABLE void unlockDeveloper();
@@ -75,6 +92,7 @@ signals:
     void manualDarkChanged();
     void darkChanged();
     void developerModeChanged();
+    void lockTimeoutChanged();
 
 private slots:
     void applyLinkResults(int battery, const QString &name, int signal);
@@ -97,6 +115,7 @@ private:
     bool m_manualDark = false;
     bool m_dark = false;
     bool m_developerMode = false;
+    int m_lockTimeout = 5;
     int m_devTaps = 0;
     QTimer m_timer;
     QTimer m_linkTimer;

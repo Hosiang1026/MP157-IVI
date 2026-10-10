@@ -1,5 +1,6 @@
 import QtQuick
 import Ivi.Services 1.0
+import IviShell
 
 Item {
     id: root
@@ -131,13 +132,66 @@ Item {
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.bottom: parent.bottom
+                    anchors.bottomMargin: modelData.id === "vehicle" ? -4 : -2
+                    width: modelData.id === "vehicle" ? 36 : 28
+                    height: width
+                    radius: width * 0.5
+                    color: SystemState.dark ? "#66FFFFFF" : "#66000000"
+                    z: -1
+                }
+
+                Rectangle {
+                    visible: modelData.id === "vehicle"
+                    anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -9
+                    width: 42
+                    height: 42
+                    radius: 21
+                    color: "#40007AFF"
+                    z: -1
+                }
+
+                Item {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
                     anchors.bottomMargin: modelData.id === "vehicle" ? 2 : 0
                     width: modelData.id === "vehicle" ? 18 : 14
                     height: width
-                    radius: width * 0.5
-                    color: modelData.color
-                    border.color: "#FFFFFF"
-                    border.width: 2
+                    rotation: modelData.id === "vehicle" && GpsSource.hasFix ? GpsSource.course : 0
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: width * 0.5
+                        color: modelData.color
+                        border.color: SystemState.dark ? "#E6FFFFFF" : "#F2FFFFFF"
+                        border.width: 2.5
+                    }
+
+                    Canvas {
+                        visible: modelData.id === "vehicle" && GpsSource.hasFix
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottom: parent.top
+                        anchors.bottomMargin: -2
+                        width: 10
+                        height: 8
+                        onVisibleChanged: requestPaint()
+                        onWidthChanged: requestPaint()
+                        onHeightChanged: requestPaint()
+                        Component.onCompleted: requestPaint()
+                        onPaint: {
+                            const ctx = getContext("2d")
+                            if (!ctx)
+                                return
+                            ctx.reset()
+                            ctx.fillStyle = modelData.color
+                            ctx.beginPath()
+                            ctx.moveTo(width * 0.5, 0)
+                            ctx.lineTo(width, height)
+                            ctx.lineTo(0, height)
+                            ctx.closePath()
+                            ctx.fill()
+                        }
+                    }
                 }
 
                 Text {
@@ -149,7 +203,7 @@ Item {
                     font.pixelSize: 12
                     font.bold: true
                     style: Text.Outline
-                    styleColor: "#FFFFFF"
+                    styleColor: SystemState.dark ? "#CC000000" : "#E6FFFFFF"
                 }
             }
         }
@@ -215,85 +269,159 @@ Item {
 
         Column {
             anchors.left: parent.left
+            anchors.right: parent.right
             anchors.top: parent.top
-            anchors.margins: 16
+            anchors.leftMargin: 16
+            anchors.rightMargin: 16
+            anchors.topMargin: 16
             spacing: 8
 
-            Rectangle {
-                width: Math.min(420, root.width - 32)
+            Row {
+                width: parent.width
                 height: 44
-                radius: 12
-                color: SystemState.card
-                border.color: SystemState.fill
-                border.width: 1
+                spacing: 10
 
-                Row {
-                    anchors.fill: parent
-                    anchors.margins: 6
-                    spacing: 6
+                Rectangle {
+                    width: Math.max(180, parent.width - statusCard.width - navBtn.width - parent.spacing * 2)
+                    height: 44
+                    radius: 12
+                    color: SystemState.card
+                    opacity: 0.92
+                    border.color: SystemState.separator
+                    border.width: 1 / Screen.devicePixelRatio
 
-                    Rectangle {
-                        width: parent.width - 78
-                        height: parent.height
-                        radius: 8
-                        color: SystemState.fill
-                        TextInput {
-                            id: searchInput
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 12
-                            verticalAlignment: Text.AlignVCenter
-                            color: SystemState.ink
-                            font.pixelSize: 14
-                            clip: true
-                            text: root.query
-                            onTextChanged: root.query = text
-                            Keys.onReturnPressed: MapTiles.searchPlaces(root.query)
-                            Keys.onEnterPressed: MapTiles.searchPlaces(root.query)
+                    IosSearchField {
+                        id: searchField
+                        anchors.fill: parent
+                        anchors.margins: 4
+                        placeholder: "搜索地点"
+                        onSubmitted: MapTiles.searchPlaces(text)
+                        onCleared: root.query = ""
+                        onTextChanged: root.query = text
+                    }
+                }
+
+                Rectangle {
+                    id: statusCard
+                    width: NavSession.active ? 220 : 200
+                    height: 44
+                    radius: 12
+                    color: SystemState.card
+                    opacity: 0.92
+                    border.color: SystemState.separator
+                    border.width: 1 / Screen.devicePixelRatio
+
+                    Row {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        spacing: 8
+
+                        Item {
+                            width: 28
+                            height: 28
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: NavSession.active
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: width / 2
+                                color: "#FFFFFF"
+                                border.color: VehicleState.speed > NavSession.speedLimit ? "#FF3B30" : "#E53935"
+                                border.width: 2.4
+                            }
+                            Text {
+                                anchors.centerIn: parent
+                                text: "" + NavSession.speedLimit
+                                color: "#111111"
+                                font.pixelSize: NavSession.speedLimit >= 100 ? 10 : 12
+                                font.weight: Font.Bold
+                            }
                         }
-                        Text {
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            text: "搜索地点"
-                            color: SystemState.secondary
-                            font.pixelSize: 14
-                            verticalAlignment: Text.AlignVCenter
-                            visible: searchInput.text.length === 0 && !searchInput.activeFocus
+
+                        Rectangle {
+                            width: 8
+                            height: 8
+                            radius: 4
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: !NavSession.active
+                            color: GpsSource.hasFix ? SystemState.success
+                                   : (MapTiles.hasTiles ? SystemState.warning : SystemState.danger)
+                        }
+
+                        Column {
+                            width: parent.width - (NavSession.active ? 36 : 16)
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 1
+                            Text {
+                                width: parent.width
+                                text: NavSession.active
+                                      ? NavSession.text
+                                      : (MapTiles.hasDestination
+                                         ? ("前往 " + MapTiles.destinationName)
+                                         : (MapTiles.hasTiles ? "离线地图" : "未找到底图"))
+                                color: SystemState.ink
+                                font.pixelSize: 14
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                width: parent.width
+                                visible: NavSession.active || !MapTiles.hasTiles
+                                text: NavSession.active
+                                      ? (VehicleState.speed + " km/h · ETA " + NavSession.etaMin + " 分")
+                                      : "先运行 tileserver"
+                                color: VehicleState.speed > NavSession.speedLimit && NavSession.active
+                                       ? SystemState.danger : SystemState.secondary
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+                }
+
+                IosPressable {
+                    id: navBtn
+                    width: 112
+                    height: 44
+                    onClicked: {
+                        if (NavSession.active) {
+                            NavSession.stop()
+                        } else {
+                            NavSession.startTo(MapTiles.hasDestination ? MapTiles.destinationName : "目的地")
                         }
                     }
 
                     Rectangle {
-                        id: searchBtn
-                        width: 72
-                        height: parent.height
-                        radius: 8
-                        color: "#007AFF"
+                        anchors.fill: parent
+                        radius: 12
+                        color: NavSession.active ? SystemState.danger : SystemState.tint
                         Text {
                             anchors.centerIn: parent
-                            text: MapTiles.searching ? "…" : "搜索"
+                            text: NavSession.active ? "结束导航" : "开始导航"
                             color: "#FFFFFF"
                             font.pixelSize: 14
-                        }
-                        TapHandler {
-                            onTapped: MapTiles.searchPlaces(root.query)
+                            font.bold: true
                         }
                     }
                 }
             }
 
             Rectangle {
-                width: Math.min(420, root.width - 32)
-                height: Math.min(180, resultCol.implicitHeight + 12)
+                width: Math.min(320, parent.width)
+                height: Math.min(180, resultCol.implicitHeight + 8)
                 radius: 12
                 color: SystemState.card
-                border.color: SystemState.fill
-                border.width: 1
+                opacity: 0.92
+                border.color: SystemState.separator
+                border.width: 1 / Screen.devicePixelRatio
                 visible: MapTiles.searchResults.length > 0
                 clip: true
 
                 Flickable {
                     anchors.fill: parent
-                    anchors.margins: 6
+                    anchors.margins: 4
                     contentHeight: resultCol.height
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
@@ -302,116 +430,59 @@ Item {
                     Column {
                         id: resultCol
                         width: parent.width
-                        spacing: 4
+                        spacing: 0
                         Repeater {
                             model: MapTiles.searchResults
-                            delegate: Rectangle {
+                            delegate: Column {
                                 required property var modelData
+                                required property int index
                                 width: resultCol.width
-                                height: 36
-                                radius: 8
-                                color: SystemState.fill
-                                Text {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 12
-                                    anchors.rightMargin: 12
-                                    verticalAlignment: Text.AlignVCenter
-                                    elide: Text.ElideRight
-                                    text: modelData.label
-                                    color: SystemState.ink
-                                    font.pixelSize: 14
-                                }
-                                TapHandler {
-                                    onTapped: {
+
+                                IosPressable {
+                                    width: parent.width
+                                    height: 40
+                                    onClicked: {
                                         MapTiles.goToPlace(modelData.name, modelData.lat, modelData.lon)
+                                        searchField.text = ""
                                         root.query = ""
                                     }
+
+                                    Item {
+                                        anchors.fill: parent
+
+                                        Text {
+                                            anchors.left: parent.left
+                                            anchors.right: chevron.left
+                                            anchors.leftMargin: 12
+                                            anchors.rightMargin: 8
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            elide: Text.ElideRight
+                                            text: modelData.label
+                                            color: SystemState.ink
+                                            font.pixelSize: 14
+                                        }
+
+                                        IosIcon {
+                                            id: chevron
+                                            anchors.right: parent.right
+                                            anchors.rightMargin: 10
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 14
+                                            height: 14
+                                            name: "chevron"
+                                            ink: SystemState.secondary
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: parent.width - 12
+                                    height: 1
+                                    x: 12
+                                    color: SystemState.separator
+                                    visible: index < MapTiles.searchResults.length - 1
                                 }
                             }
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                width: Math.min(360, root.width - 32)
-                height: 56
-                radius: 12
-                color: Qt.rgba(1, 1, 1, SystemState.dark ? 0.12 : 0.92)
-                border.color: SystemState.fill
-                border.width: 1
-
-                Column {
-                    anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 2
-                    Text {
-                        text: NavSession.active
-                              ? NavSession.text
-                              : (MapTiles.hasDestination ? ("前往 " + MapTiles.destinationName) : "离线瓦片地图")
-                        color: SystemState.ink
-                        font.pixelSize: 15
-                        font.bold: true
-                        elide: Text.ElideRight
-                        width: parent.width
-                    }
-                    Text {
-                        text: NavSession.active
-                              ? ("限速 " + NavSession.speedLimit + " · ETA " + NavSession.etaMin + " 分")
-                              : (MapTiles.hasTiles
-                                 ? (MapTiles.tileSource + "  z" + MapTiles.zoom + "  " + MapTiles.centerLat.toFixed(4) + ", " + MapTiles.centerLon.toFixed(4))
-                                 : "未找到底图（先运行 scripts/start-tileserver.ps1）")
-                        color: SystemState.secondary
-                        font.pixelSize: 12
-                    }
-                }
-            }
-
-            Row {
-                spacing: 8
-
-                Rectangle {
-                    width: 108
-                    height: 40
-                    radius: 10
-                    color: NavSession.active ? "#FF3B30" : "#007AFF"
-                    Text {
-                        anchors.centerIn: parent
-                        text: NavSession.active ? "结束导航" : "开始导航"
-                        color: "#FFFFFF"
-                        font.pixelSize: 14
-                    }
-                    TapHandler {
-                        onTapped: {
-                            if (NavSession.active) {
-                                NavSession.stop()
-                            } else {
-                                NavSession.startTo(MapTiles.hasDestination ? MapTiles.destinationName : "目的地")
-                            }
-                        }
-                    }
-                }
-
-                Rectangle {
-                    width: 88
-                    height: 40
-                    radius: 10
-                    color: SystemState.card
-                    border.color: SystemState.fill
-                    border.width: 1
-                    Text {
-                        anchors.centerIn: parent
-                        text: "定位"
-                        color: SystemState.ink
-                        font.pixelSize: 14
-                    }
-                    TapHandler {
-                        onTapped: {
-                            root.dragDx = 0
-                            root.dragDy = 0
-                            MapTiles.centerOnVehicle()
-                            root.winX1 = -1
-                            root.updateTileWindow()
                         }
                     }
                 }
@@ -419,49 +490,92 @@ Item {
         }
 
         Column {
+            id: zoomStack
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            anchors.margins: 16
-            spacing: 8
+            anchors.rightMargin: 16
+            anchors.bottomMargin: 16
+            spacing: 10
 
-            Rectangle {
+            IosPressable {
                 width: 44
                 height: 44
-                radius: 12
-                color: SystemState.card
-                border.color: SystemState.fill
-                border.width: 1
-                Text {
-                    anchors.centerIn: parent
-                    text: "+"
-                    color: SystemState.ink
-                    font.pixelSize: 24
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClicked: {
+                    root.dragDx = 0
+                    root.dragDy = 0
+                    MapTiles.centerOnVehicle()
+                    root.winX1 = -1
+                    root.updateTileWindow()
                 }
-                TapHandler {
-                    onTapped: {
-                        root.commitDrag()
-                        MapTiles.zoomIn()
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 22
+                    color: SystemState.card
+                    opacity: 0.92
+                    border.color: SystemState.separator
+                    border.width: 1 / Screen.devicePixelRatio
+                    IosIcon {
+                        anchors.centerIn: parent
+                        width: 22
+                        height: 22
+                        name: "locate"
+                        ink: SystemState.tint
                     }
                 }
             }
 
             Rectangle {
                 width: 44
-                height: 44
-                radius: 12
+                height: 88
+                radius: 22
                 color: SystemState.card
-                border.color: SystemState.fill
-                border.width: 1
-                Text {
-                    anchors.centerIn: parent
-                    text: "−"
-                    color: SystemState.ink
-                    font.pixelSize: 24
-                }
-                TapHandler {
-                    onTapped: {
-                        root.commitDrag()
-                        MapTiles.zoomOut()
+                opacity: 0.92
+                border.color: SystemState.separator
+                border.width: 1 / Screen.devicePixelRatio
+                clip: true
+
+                Column {
+                    anchors.fill: parent
+
+                    IosPressable {
+                        width: parent.width
+                        height: 43
+                        onClicked: {
+                            root.commitDrag()
+                            MapTiles.zoomIn()
+                        }
+                        IosIcon {
+                            anchors.centerIn: parent
+                            width: 20
+                            height: 20
+                            name: "plus"
+                            ink: SystemState.ink
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width - 12
+                        height: 1
+                        x: 6
+                        color: SystemState.separator
+                    }
+
+                    IosPressable {
+                        width: parent.width
+                        height: 44
+                        onClicked: {
+                            root.commitDrag()
+                            MapTiles.zoomOut()
+                        }
+                        IosIcon {
+                            anchors.centerIn: parent
+                            width: 20
+                            height: 20
+                            name: "minus"
+                            ink: SystemState.ink
+                        }
                     }
                 }
             }

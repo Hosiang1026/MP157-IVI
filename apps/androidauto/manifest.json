@@ -1,0 +1,9 @@
+{
+  "name": "Android Auto",
+  "entry": "Main.qml",
+  "color": "#3DDC84",
+  "dock": true,
+  "dockOrder": 3,
+  "builtin": true,
+  "order": 101
+}

@@ -4,6 +4,10 @@ set -eu
 DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 cd "$DIR"
 
+mkdir -p "$DIR/logs" || true
+: "${IVI_LOG_DIR:=$DIR/logs}"
+export IVI_LOG_DIR
+
 if [ -d "$DIR/qt/lib" ]; then
   export LD_LIBRARY_PATH="$DIR/qt/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi

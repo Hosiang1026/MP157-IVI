@@ -25,6 +25,8 @@ public:
     Q_INVOKABLE void start();
     Q_INVOKABLE void startTo(const QString &destination);
     Q_INVOKABLE void stop();
+    Q_INVOKABLE void applyRemote(bool active, const QString &text, const QString &turn, int speedLimit,
+                                 int etaMin, const QString &destination);
 
 signals:
     void activeChanged();
@@ -34,8 +36,12 @@ private:
     void advance();
 
     bool m_active = false;
+    bool m_remote = false;
     int m_index = 0;
     int m_etaMin = 12;
+    int m_speedLimit = 0;
     QString m_destination;
+    QString m_text;
+    QString m_turn;
     QTimer m_timer;
 };

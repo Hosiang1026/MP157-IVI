@@ -32,8 +32,10 @@ class VehicleState : public QObject {
     Q_PROPERTY(qreal batteryVoltage READ batteryVoltage NOTIFY changed)
     Q_PROPERTY(bool batteryLow READ batteryLow NOTIFY changed)
     Q_PROPERTY(QVariantList batteryHistory READ batteryHistory NOTIFY changed)
+    Q_PROPERTY(QVariantList batteryHistoryTimes READ batteryHistoryTimes NOTIFY changed)
     Q_PROPERTY(qreal batteryHistoryMin READ batteryHistoryMin NOTIFY changed)
     Q_PROPERTY(qreal batteryHistoryMax READ batteryHistoryMax NOTIFY changed)
+    Q_PROPERTY(int batteryRangeDays READ batteryRangeDays WRITE setBatteryRangeDays NOTIFY changed)
     Q_PROPERTY(bool brakeWear READ brakeWear NOTIFY changed)
     Q_PROPERTY(bool engineFault READ engineFault NOTIFY changed)
     Q_PROPERTY(bool absFault READ absFault NOTIFY changed)
@@ -49,11 +51,17 @@ class VehicleState : public QObject {
     Q_PROPERTY(int alertCount READ alertCount NOTIFY changed)
     Q_PROPERTY(int alertIndex READ alertIndex NOTIFY changed)
 public:
-    static constexpr int kBatteryHistoryMax = 336;
+    static constexpr int kBatteryKeepDays = 20;
+    static constexpr int kBatteryHistoryMax = 20 * 24; // 20天×每小时1点
 
     struct AlertItem {
         QString text;
         QString color;
+    };
+
+    struct BatterySample {
+        qint64 ms = 0;
+        qreal v = 0;
     };
 
     explicit VehicleState(WeatherService *weather = nullptr, QObject *parent = nullptr);
@@ -79,8 +87,11 @@ public:
     qreal batteryVoltage() const;
     bool batteryLow() const;
     QVariantList batteryHistory() const;
+    QVariantList batteryHistoryTimes() const;
     qreal batteryHistoryMin() const;
     qreal batteryHistoryMax() const;
+    int batteryRangeDays() const;
+    void setBatteryRangeDays(int days);
     bool brakeWear() const;
     bool engineFault() const;
     bool absFault() const;
@@ -115,8 +126,11 @@ private:
     void load();
     void advanceAlert();
     void sampleBattery();
-    void pushBatterySample(qreal v);
+    void pushBatterySample(qreal v, qint64 ms = 0);
     void seedBatteryHistory();
+    void trimBatteryHistory();
+    void refreshBatteryRangeStats();
+    QVector<BatterySample> rangedBatterySamples() const;
     QVector<AlertItem> activeAlerts() const;
 
     WeatherService *m_weather = nullptr;
@@ -141,9 +155,10 @@ private:
     bool m_oilPressureLow = false;
     qreal m_batteryVoltage = 13.8;
     qreal m_batteryNoise = 0;
-    QVector<qreal> m_batteryHistory;
+    QVector<BatterySample> m_batteryHistory;
     qreal m_batteryHistoryMin = 11.5;
     qreal m_batteryHistoryMax = 14.8;
+    int m_batteryRangeDays = 20;
     int m_batterySampleTick = 0;
     bool m_brakeWear = false;
     bool m_engineFault = false;

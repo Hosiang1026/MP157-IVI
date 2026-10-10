@@ -106,8 +106,11 @@ SystemState::SystemState(QObject *parent)
     m_bluetooth = settings.value(QStringLiteral("bluetooth"), true).toBool();
     m_wifi = settings.value(QStringLiteral("wifi"), true).toBool();
     m_developerMode = settings.value(QStringLiteral("developerMode"), false).toBool();
+    m_lockTimeout = settings.value(QStringLiteral("lockTimeout"), 5).toInt();
+    if (m_lockTimeout < 0)
+        m_lockTimeout = 0;
     m_dark = m_autoTheme ? nightNow() : m_manualDark;
-    m_time = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    m_time = QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss"));
     m_timer.setInterval(1000);
     connect(&m_timer, &QTimer::timeout, this, &SystemState::updateTime);
     m_timer.start();
@@ -211,6 +214,22 @@ void SystemState::setDeveloperMode(bool value)
     emit developerModeChanged();
 }
 
+int SystemState::lockTimeout() const
+{
+    return m_lockTimeout;
+}
+
+void SystemState::setLockTimeout(int minutes)
+{
+    if (minutes < 0)
+        minutes = 0;
+    if (m_lockTimeout == minutes)
+        return;
+    m_lockTimeout = minutes;
+    QSettings().setValue(QStringLiteral("lockTimeout"), m_lockTimeout);
+    emit lockTimeoutChanged();
+}
+
 QString SystemState::appVersion() const
 {
     return UpdateService::readInstalledVersion();
@@ -242,7 +261,7 @@ QString SystemState::time() const
 
 void SystemState::updateTime()
 {
-    const QString now = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    const QString now = QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss"));
     if (now != m_time) {
         m_time = now;
         emit timeChanged();
@@ -394,32 +413,67 @@ bool SystemState::dark() const
 
 QString SystemState::page() const
 {
-    return m_dark ? QStringLiteral("#10131A") : QStringLiteral("#F2F2F7");
+    return m_dark ? QStringLiteral("#000000") : QStringLiteral("#F2F2F7");
 }
 
 QString SystemState::card() const
 {
-    return m_dark ? QStringLiteral("#1B2030") : QStringLiteral("#FFFFFF");
+    return m_dark ? QStringLiteral("#CC2C2C2E") : QStringLiteral("#E6FFFFFF");
 }
 
 QString SystemState::ink() const
 {
-    return m_dark ? QStringLiteral("#E8ECF4") : QStringLiteral("#000000");
+    return m_dark ? QStringLiteral("#FFFFFF") : QStringLiteral("#000000");
 }
 
 QString SystemState::secondary() const
 {
-    return m_dark ? QStringLiteral("#8A93A6") : QStringLiteral("#8E8E93");
+    return m_dark ? QStringLiteral("#98989D") : QStringLiteral("#8E8E93");
 }
 
 QString SystemState::fill() const
 {
-    return m_dark ? QStringLiteral("#2A3142") : QStringLiteral("#E5E5EA");
+    return m_dark ? QStringLiteral("#3D3A3A3C") : QStringLiteral("#33767680");
 }
 
 QString SystemState::highlight() const
 {
-    return m_dark ? QStringLiteral("#1F3A5C") : QStringLiteral("#E5F1FF");
+    return selected();
+}
+
+QString SystemState::tint() const
+{
+    return m_dark ? QStringLiteral("#0A84FF") : QStringLiteral("#007AFF");
+}
+
+QString SystemState::separator() const
+{
+    return m_dark ? QStringLiteral("#40FFFFFF") : QStringLiteral("#29000000");
+}
+
+QString SystemState::selected() const
+{
+    return m_dark ? QStringLiteral("#330A84FF") : QStringLiteral("#1A007AFF");
+}
+
+QString SystemState::elevated() const
+{
+    return m_dark ? QStringLiteral("#E63A3A3C") : QStringLiteral("#F2FFFFFF");
+}
+
+QString SystemState::danger() const
+{
+    return QStringLiteral("#FF3B30");
+}
+
+QString SystemState::success() const
+{
+    return QStringLiteral("#34C759");
+}
+
+QString SystemState::warning() const
+{
+    return QStringLiteral("#FF9500");
 }
 
 bool SystemState::nightNow() const

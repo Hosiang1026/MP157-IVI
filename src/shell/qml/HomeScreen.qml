@@ -221,11 +221,11 @@ Item {
         height: root.dockBarH
         radius: Math.max(16, Math.round(root.dockBarH * 0.18))
         sourceItem: root.glassSource
-        fill: SystemState.dark ? "#661B2030" : "#73F2F2F7"
-        stroke: root.dockHot ? "#E6FFFFFF" : (SystemState.dark ? "#40A8B4C8" : "#66FFFFFF")
-        strokeWidth: root.dockHot ? 1.5 : 0.8
-        blurAmount: 0.92
-        blurMax: 48
+        fill: SystemState.dark ? "#A61C1C1E" : "#8CF2F2F7"
+        stroke: root.dockHot ? "#E6FFFFFF" : (SystemState.dark ? "#59FFFFFF" : "#99FFFFFF")
+        strokeWidth: root.dockHot ? 1.25 : (1 / Screen.devicePixelRatio)
+        blurAmount: 1.0
+        blurMax: 56
         opacity: root.currentPage === 0 ? 1 : 0.94
     }
 

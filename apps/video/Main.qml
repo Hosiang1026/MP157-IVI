@@ -1,9 +1,11 @@
 import QtQuick
 import QtQuick.Controls
 import Ivi.Services 1.0
+import IviShell
 
 Item {
     id: root
+    property string tab: "local"
     property string page: "library"
     property int index: 0
     property bool controlsVisible: true
@@ -19,6 +21,8 @@ Item {
     function openPlayer(i) {
         if (i < 0 || i >= clips.length)
             return
+        if (DlnaRenderer.hasMedia)
+            DlnaRenderer.stopMedia()
         index = i
         page = "player"
         controlsVisible = true
@@ -55,19 +59,55 @@ Item {
             hideTimer.restart()
     }
 
+    function switchTab(t) {
+        if (tab === t)
+            return
+        if (t === "wlan" && page === "player")
+            goBack()
+        tab = t
+    }
+
     onVisibleChanged: {
         if (!visible && page === "player")
             player.playing = false
     }
 
-    Component.onDestruction: AudioFocus.release("video")
+    Component.onDestruction: {
+        AudioFocus.release("video")
+        if (DlnaRenderer.running)
+            DlnaRenderer.stop()
+    }
+
+    function consumePending() {
+        const name = FileBrowser.pendingVideo
+        if (!name.length)
+            return
+        root.clips = clipProbe.listClips()
+        root.tab = "local"
+        for (let i = 0; i < root.clips.length; ++i) {
+            if (root.clips[i].title === name) {
+                FileBrowser.clearPendingVideo()
+                openPlayer(i)
+                return
+            }
+        }
+        FileBrowser.clearPendingVideo()
+    }
 
     VideoScreen {
         id: clipProbe
         visible: false
         width: 1
         height: 1
-        Component.onCompleted: root.clips = listClips()
+        Component.onCompleted: {
+            root.clips = listClips()
+            root.consumePending()
+        }
+    }
+
+    Connections {
+        target: FileBrowser
+        function onPendingVideoChanged() { root.consumePending() }
     }
 
     Timer {
@@ -81,7 +121,8 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: root.page === "player" ? "#000000" : SystemState.page
+        color: (root.page === "player" || (root.tab === "wlan" && DlnaRenderer.hasFrame))
+               ? "#000000" : "transparent"
     }
 
     Item {
@@ -92,86 +133,270 @@ Item {
 
         Column {
             anchors.fill: parent
-            spacing: 14
+            spacing: 12
 
-            Text {
-                text: "视频"
-                color: SystemState.ink
-                font.pixelSize: 28
-                font.bold: true
-            }
-
-            Text {
-                visible: root.clips.length === 0
-                text: "media/video 下没有 AVI"
-                color: SystemState.secondary
-                font.pixelSize: 14
-            }
-
-            GridView {
-                id: grid
+            Row {
                 width: parent.width
-                height: parent.height - 48
-                clip: true
-                cellWidth: width / 4
-                cellHeight: cellWidth * 0.62 + 40
-                model: root.clips
+                spacing: 16
+                Text {
+                    text: "视频"
+                    color: SystemState.ink
+                    font.pixelSize: 28
+                    font.bold: true
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+                Item { width: 8; height: 1 }
+                IosSegmented {
+                    width: 200
+                    anchors.verticalCenter: parent.verticalCenter
+                    labels: ["本地", "无线投屏"]
+                    currentIndex: root.tab === "wlan" ? 1 : 0
+                    onActivated: function(i) { root.switchTab(i === 1 ? "wlan" : "local") }
+                }
+            }
 
-                delegate: Item {
-                    required property var modelData
-                    required property int index
-                    width: grid.cellWidth
-                    height: grid.cellHeight
+            Item {
+                width: parent.width
+                height: parent.height - 54
+                visible: root.tab === "local"
 
-                    Column {
-                        anchors.fill: parent
-                        anchors.margins: 8
-                        spacing: 8
+                Text {
+                    visible: root.clips.length === 0
+                    text: "media/video 下没有 AVI"
+                    color: SystemState.secondary
+                    font.pixelSize: 14
+                }
 
-                        Rectangle {
-                            width: parent.width
-                            height: width * 0.56
-                            radius: 12
-                            color: "#000000"
-                            clip: true
+                GridView {
+                    id: grid
+                    anchors.fill: parent
+                    clip: true
+                    cellWidth: width / 4
+                    cellHeight: cellWidth * 0.62 + 40
+                    model: root.clips
+                    visible: root.clips.length > 0
 
-                            VideoScreen {
-                                anchors.fill: parent
-                                preview: true
-                                clipName: modelData.title
-                                playing: false
-                            }
+                    delegate: IosPressable {
+                        required property var modelData
+                        required property int index
+                        width: grid.cellWidth
+                        height: grid.cellHeight
+                        onClicked: root.openPlayer(index)
+
+                        Column {
+                            anchors.fill: parent
+                            anchors.margins: 8
+                            spacing: 8
 
                             Rectangle {
-                                anchors.fill: parent
+                                width: parent.width
+                                height: width * 0.56
                                 radius: 12
-                                color: "transparent"
-                                border.color: index === root.index ? "#5E5CE6" : "transparent"
-                                border.width: 2
+                                color: "#000000"
+                                clip: true
+
+                                VideoScreen {
+                                    anchors.fill: parent
+                                    preview: true
+                                    clipName: modelData.title
+                                    playing: false
+                                }
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: 12
+                                    color: "transparent"
+                                    border.color: index === root.index ? SystemState.tint : "transparent"
+                                    border.width: 2
+                                }
+
+                                IosIcon {
+                                    anchors.centerIn: parent
+                                    width: 28
+                                    height: 28
+                                    name: "play"
+                                    ink: "#FFFFFF"
+                                    opacity: 0.85
+                                }
                             }
 
                             Text {
-                                anchors.centerIn: parent
-                                text: "▶"
-                                color: "#FFFFFF"
-                                font.pixelSize: 28
-                                opacity: 0.85
+                                width: parent.width
+                                text: modelData.title
+                                color: SystemState.ink
+                                font.pixelSize: 15
+                                elide: Text.ElideRight
+                                horizontalAlignment: Text.AlignHCenter
                             }
                         }
+                    }
+                }
+            }
 
-                        Text {
-                            width: parent.width
-                            text: modelData.title
-                            color: SystemState.ink
-                            font.pixelSize: 15
-                            elide: Text.ElideRight
-                            horizontalAlignment: Text.AlignHCenter
-                        }
+            Item {
+                width: parent.width
+                height: parent.height - 54
+                visible: root.tab === "wlan"
+
+                Column {
+                    anchors.centerIn: parent
+                    spacing: 14
+                    visible: !DlnaRenderer.hasFrame
+                    width: Math.min(parent.width, 520)
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "无线投屏"
+                        color: SystemState.ink
+                        font.pixelSize: 26
+                        font.bold: true
+                    }
+                    Text {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        text: DlnaRenderer.status
+                        color: SystemState.ink
+                        font.pixelSize: 18
+                    }
+                    Text {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        text: DlnaRenderer.detail
+                        color: SystemState.secondary
+                        font.pixelSize: 14
+                    }
+                    Text {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        visible: DlnaRenderer.hasMedia
+                        text: DlnaRenderer.mediaTitle + " · " + DlnaRenderer.transportState
+                        color: SystemState.secondary
+                        font.pixelSize: 13
                     }
 
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: root.openPlayer(index)
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: 12
+                        IosPressable {
+                            width: 120
+                            height: 40
+                            enabled: !DlnaRenderer.running
+                            onClicked: {
+                                if (root.page === "player")
+                                    root.goBack()
+                                DlnaRenderer.start()
+                            }
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 20
+                                color: DlnaRenderer.running ? SystemState.fill : SystemState.tint
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: DlnaRenderer.running ? "运行中" : "开始接收"
+                                    color: DlnaRenderer.running ? SystemState.secondary : "#FFFFFF"
+                                    font.pixelSize: 15
+                                    font.bold: true
+                                }
+                            }
+                        }
+                        IosPressable {
+                            width: 100
+                            height: 40
+                            visible: DlnaRenderer.running
+                            onClicked: DlnaRenderer.stop()
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 20
+                                color: SystemState.danger
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "停止"
+                                    color: "#FFFFFF"
+                                    font.pixelSize: 15
+                                    font.bold: true
+                                }
+                            }
+                        }
+                        IosPressable {
+                            width: 100
+                            height: 40
+                            visible: DlnaRenderer.hasMedia
+                            onClicked: DlnaRenderer.stopMedia()
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 20
+                                color: SystemState.fill
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "清除"
+                                    color: SystemState.ink
+                                    font.pixelSize: 15
+                                    font.bold: true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Item {
+        anchors.fill: parent
+        visible: root.tab === "wlan" && root.page === "library"
+        z: 10
+
+        DlnaVideoItem {
+            anchors.fill: parent
+            visible: DlnaRenderer.hasFrame
+            session: DlnaRenderer
+        }
+
+        Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 20
+            spacing: 12
+            visible: DlnaRenderer.hasFrame
+            z: 20
+
+            IosPressable {
+                width: 88
+                height: 36
+                onClicked: {
+                    if (DlnaRenderer.transportState === "PAUSED_PLAYBACK")
+                        DlnaRenderer.resumeMedia()
+                    else
+                        DlnaRenderer.pauseMedia()
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 18
+                    color: SystemState.elevated
+                    Text {
+                        anchors.centerIn: parent
+                        text: DlnaRenderer.transportState === "PAUSED_PLAYBACK" ? "继续" : "暂停"
+                        color: SystemState.ink
+                        font.pixelSize: 14
+                    }
+                }
+            }
+            IosPressable {
+                width: 88
+                height: 36
+                onClicked: DlnaRenderer.stopMedia()
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 18
+                    color: SystemState.danger
+                    Text {
+                        anchors.centerIn: parent
+                        text: "停止"
+                        color: "#FFFFFF"
+                        font.pixelSize: 14
                     }
                 }
             }
@@ -217,20 +442,21 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 14
 
-                    Rectangle {
+                    IosPressable {
                         width: 44
                         height: 44
-                        radius: 22
-                        color: "#66FFFFFF"
-                        Text {
-                            anchors.centerIn: parent
-                            text: "←"
-                            color: "#FFFFFF"
-                            font.pixelSize: 22
-                        }
-                        MouseArea {
+                        onClicked: root.goBack()
+                        Rectangle {
                             anchors.fill: parent
-                            onClicked: root.goBack()
+                            radius: 22
+                            color: "#66FFFFFF"
+                            IosIcon {
+                                anchors.centerIn: parent
+                                width: 22
+                                height: 22
+                                name: "back"
+                                ink: "#FFFFFF"
+                            }
                         }
                     }
 
@@ -286,7 +512,7 @@ Item {
                                     width: seek.visualPosition * parent.width
                                     height: parent.height
                                     radius: 3
-                                    color: "#5E5CE6"
+                                    color: SystemState.tint
                                 }
                             }
                             handle: Rectangle {
@@ -310,65 +536,68 @@ Item {
                         anchors.horizontalCenter: parent.horizontalCenter
                         spacing: 28
 
-                        Rectangle {
+                        IosPressable {
                             width: 56
                             height: 56
-                            radius: 28
-                            color: "#55FFFFFF"
-                            Text {
-                                anchors.centerIn: parent
-                                text: "⏮"
-                                color: "#FFFFFF"
-                                font.pixelSize: 20
+                            onClicked: {
+                                root.playPrev()
+                                hideTimer.restart()
                             }
-                            MouseArea {
+                            Rectangle {
                                 anchors.fill: parent
-                                onClicked: {
-                                    root.playPrev()
-                                    hideTimer.restart()
+                                radius: 28
+                                color: "#55FFFFFF"
+                                IosIcon {
+                                    anchors.centerIn: parent
+                                    width: 24
+                                    height: 24
+                                    name: "prev"
+                                    ink: "#FFFFFF"
                                 }
                             }
                         }
-                        Rectangle {
+                        IosPressable {
                             width: 68
                             height: 68
-                            radius: 34
-                            color: "#5E5CE6"
-                            Text {
-                                anchors.centerIn: parent
-                                text: player.playing ? "❚❚" : "▶"
-                                color: "#FFFFFF"
-                                font.pixelSize: 24
+                            onClicked: {
+                                player.playing = !player.playing
+                                if (player.playing)
+                                    AudioFocus.request("video", AudioFocus.mediaPriority)
+                                else
+                                    AudioFocus.release("video")
+                                root.controlsVisible = true
+                                hideTimer.restart()
                             }
-                            MouseArea {
+                            Rectangle {
                                 anchors.fill: parent
-                                onClicked: {
-                                    player.playing = !player.playing
-                                    if (player.playing)
-                                        AudioFocus.request("video", AudioFocus.mediaPriority)
-                                    else
-                                        AudioFocus.release("video")
-                                    root.controlsVisible = true
-                                    hideTimer.restart()
+                                radius: 34
+                                color: SystemState.tint
+                                IosIcon {
+                                    anchors.centerIn: parent
+                                    width: 28
+                                    height: 28
+                                    name: player.playing ? "pause" : "play"
+                                    ink: "#FFFFFF"
                                 }
                             }
                         }
-                        Rectangle {
+                        IosPressable {
                             width: 56
                             height: 56
-                            radius: 28
-                            color: "#55FFFFFF"
-                            Text {
-                                anchors.centerIn: parent
-                                text: "⏭"
-                                color: "#FFFFFF"
-                                font.pixelSize: 20
+                            onClicked: {
+                                root.playNext()
+                                hideTimer.restart()
                             }
-                            MouseArea {
+                            Rectangle {
                                 anchors.fill: parent
-                                onClicked: {
-                                    root.playNext()
-                                    hideTimer.restart()
+                                radius: 28
+                                color: "#55FFFFFF"
+                                IosIcon {
+                                    anchors.centerIn: parent
+                                    width: 24
+                                    height: 24
+                                    name: "next"
+                                    ink: "#FFFFFF"
                                 }
                             }
                         }

@@ -1,5 +1,7 @@
 #include "WeatherService.hpp"
 
+#include "GpsSource.hpp"
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -15,6 +17,7 @@
 #include <QStringList>
 #include <QTimer>
 #include <QUrlQuery>
+#include <QtMath>
 
 void WeatherService::decodeCode(int code, bool day, QString *kind, QString *condition)
 {
@@ -233,6 +236,47 @@ WeatherService::WeatherService(QObject *parent)
     connect(&m_liveTimer, &QTimer::timeout, this, &WeatherService::updateFromHourly);
     m_liveTimer.start();
     QTimer::singleShot(800, this, &WeatherService::refreshCurrent);
+}
+
+void WeatherService::setGpsSource(GpsSource *gps)
+{
+    if (m_gps == gps)
+        return;
+    if (m_gps)
+        disconnect(m_gps, nullptr, this, nullptr);
+    m_gps = gps;
+    if (!m_gps)
+        return;
+    connect(m_gps, &GpsSource::positionUpdated, this, &WeatherService::onGpsUpdated);
+    if (m_gps->hasFix())
+        QTimer::singleShot(0, this, &WeatherService::onGpsUpdated);
+}
+
+bool WeatherService::applyGpsFix()
+{
+    if (!m_gps || !m_gps->hasFix())
+        return false;
+    m_lat = m_gps->latitude();
+    m_lon = m_gps->longitude();
+    m_located = true;
+    return true;
+}
+
+void WeatherService::onGpsUpdated()
+{
+    if (!applyGpsFix())
+        return;
+    const double dLat = qAbs(m_lat - m_weatherLat);
+    const double dLon = qAbs(m_lon - m_weatherLon);
+    const bool first = m_weatherLat == 0.0 && m_weatherLon == 0.0;
+    if (!first && dLat < 0.03 && dLon < 0.03)
+        return;
+    if (m_refreshing)
+        return;
+    setRefreshing(true);
+    m_statusText = m_gps->demoMode() ? QStringLiteral("演示定位") : QStringLiteral("GPS 定位");
+    emit updated();
+    fetchPlace();
 }
 
 QString WeatherService::place() const
@@ -474,33 +518,14 @@ void WeatherService::setPreview(const QString &mode)
 void WeatherService::loadCities()
 {
     m_cities.clear();
+    City autoCity;
+    autoCity.name = QStringLiteral("当前位置");
+    autoCity.autoLocate = true;
+    m_cities.append(autoCity);
+    m_cityIndex = 0;
     QSettings settings;
-    const QVariantList saved = settings.value(QStringLiteral("weather/cities")).toList();
-    for (const QVariant &item : saved) {
-        const QVariantMap map = item.toMap();
-        City city;
-        city.name = map.value(QStringLiteral("name")).toString().trimmed();
-        city.lat = map.value(QStringLiteral("lat")).toDouble();
-        city.lon = map.value(QStringLiteral("lon")).toDouble();
-        city.autoLocate = map.value(QStringLiteral("autoLocate")).toBool();
-        if (city.name.isEmpty())
-            continue;
-        m_cities.append(city);
-    }
-    if (m_cities.isEmpty()) {
-        City autoCity;
-        autoCity.name = QStringLiteral("当前位置");
-        autoCity.autoLocate = true;
-        m_cities.append(autoCity);
-    }
-    m_cityIndex = settings.value(QStringLiteral("weather/cityIndex"), 0).toInt();
-    m_cityIndex = qBound(0, m_cityIndex, m_cities.size() - 1);
-    if (!currentIsAuto()) {
-        m_lat = m_cities.at(m_cityIndex).lat;
-        m_lon = m_cities.at(m_cityIndex).lon;
-        m_place = m_cities.at(m_cityIndex).name;
-        m_located = true;
-    }
+    settings.remove(QStringLiteral("weather/cities"));
+    settings.remove(QStringLiteral("weather/cityIndex"));
 }
 
 void WeatherService::saveCities() const
@@ -540,78 +565,20 @@ void WeatherService::refresh()
 
 void WeatherService::refreshCurrent()
 {
-    if (currentIsAuto())
-        fetchLocation();
-    else if (m_cityIndex >= 0 && m_cityIndex < m_cities.size()) {
-        m_lat = m_cities.at(m_cityIndex).lat;
-        m_lon = m_cities.at(m_cityIndex).lon;
-        m_place = m_cities.at(m_cityIndex).name;
-        m_located = true;
-        fetchWeather();
-        QTimer::singleShot(2000, this, &WeatherService::fetchWarnings);
-        emit updated();
-    } else {
-        setRefreshing(false);
-    }
+    fetchLocation();
 }
 
-void WeatherService::selectCity(int index)
+void WeatherService::selectCity(int)
 {
-    if (index < 0 || index >= m_cities.size() || index == m_cityIndex)
-        return;
-    m_cityIndex = index;
-    saveCities();
-    m_hourlyTime.clear();
-    m_travelAlert.clear();
-    emit citiesChanged();
-    refreshCurrent();
 }
 
-void WeatherService::addCity(const QString &name, double lat, double lon)
+void WeatherService::addCity(const QString &, double, double)
 {
-    const QString trimmed = name.trimmed();
-    if (trimmed.isEmpty())
-        return;
-    for (int i = 0; i < m_cities.size(); ++i) {
-        const City &city = m_cities.at(i);
-        if (!city.autoLocate && qAbs(city.lat - lat) < 0.05 && qAbs(city.lon - lon) < 0.05) {
-            selectCity(i);
-            clearSearch();
-            return;
-        }
-    }
-    City city;
-    city.name = trimmed;
-    city.lat = lat;
-    city.lon = lon;
-    m_cities.append(city);
-    m_cityIndex = m_cities.size() - 1;
-    saveCities();
     clearSearch();
-    m_hourlyTime.clear();
-    m_travelAlert.clear();
-    emit citiesChanged();
-    refreshCurrent();
 }
 
-void WeatherService::removeCity(int index)
+void WeatherService::removeCity(int)
 {
-    if (index < 0 || index >= m_cities.size())
-        return;
-    if (m_cities.at(index).autoLocate)
-        return;
-    if (m_cities.size() <= 1)
-        return;
-    m_cities.removeAt(index);
-    if (m_cityIndex > index)
-        --m_cityIndex;
-    else if (m_cityIndex >= m_cities.size())
-        m_cityIndex = m_cities.size() - 1;
-    saveCities();
-    m_hourlyTime.clear();
-    m_travelAlert.clear();
-    emit citiesChanged();
-    refreshCurrent();
 }
 
 void WeatherService::searchCities(const QString &query)
@@ -674,6 +641,14 @@ void WeatherService::clearSearch()
 
 void WeatherService::fetchLocation()
 {
+    if (applyGpsFix()) {
+        m_statusText = m_gps->demoMode() ? QStringLiteral("演示定位") : QStringLiteral("GPS 定位");
+        emit updated();
+        fetchPlace();
+        return;
+    }
+    m_statusText = QStringLiteral("网络定位中…");
+    emit updated();
     QNetworkRequest req(QUrl(QStringLiteral("http://ip-api.com/json/?lang=zh-CN&fields=status,city,lat,lon")));
     req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("mp157-ivi"));
     req.setTransferTimeout(8000);
@@ -768,17 +743,13 @@ void WeatherService::fetchPlace()
         }
         if (!name.isEmpty()) {
             m_place = name;
-            for (City &city : m_cities) {
-                if (!city.autoLocate)
-                    continue;
-                if (city.name != name) {
-                    city.name = name;
-                    saveCities();
-                    emit citiesChanged();
-                }
-                break;
+            if (!m_cities.isEmpty() && m_cities.first().name != name) {
+                m_cities.first().name = name;
+                emit citiesChanged();
             }
         }
+        m_weatherLat = m_lat;
+        m_weatherLon = m_lon;
         fetchWeather();
         QTimer::singleShot(2000, this, &WeatherService::fetchWarnings);
     });

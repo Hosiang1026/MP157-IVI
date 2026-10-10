@@ -2,9 +2,12 @@
 Description=MP157 IVI Shell
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=8
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
 User=root
 WorkingDirectory=/opt/ivi
 Environment=QT_QPA_PLATFORM=eglfs
@@ -13,9 +16,14 @@ Environment=QT_QPA_EGLFS_PHYSICAL_HEIGHT=87
 Environment=LD_LIBRARY_PATH=/opt/ivi/qt/lib
 Environment=QT_PLUGIN_PATH=/opt/ivi/qt/plugins
 Environment=QML2_IMPORT_PATH=/opt/ivi/qt/qml
+Environment=IVI_LOG_DIR=/opt/ivi/logs
 ExecStart=/opt/ivi/run-ivi-shell.sh
-Restart=on-failure
-RestartSec=3
+WatchdogSec=30
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ivi-shell
 
 [Install]
 WantedBy=multi-user.target

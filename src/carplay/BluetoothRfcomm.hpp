@@ -37,8 +37,10 @@ protected:
 private:
     mutable QMutex m_mutex;
     QString m_error;
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     qintptr m_socket = -1;
+#endif
+#ifdef Q_OS_WIN
     bool m_wsaStarted = false;
 #endif
 };

@@ -43,6 +43,7 @@ public:
     Q_INVOKABLE void setDevice(const QString &name);
     Q_INVOKABLE void acquire(const QString &holder);
     Q_INVOKABLE void release(const QString &holder);
+    Q_INVOKABLE void dismissReverse();
     Q_INVOKABLE void startRecording();
     Q_INVOKABLE void stopRecording();
     Q_INVOKABLE QVariantList listRecordings() const;
@@ -71,6 +72,7 @@ private:
     QString m_deviceName;
     QStringList m_devices;
     QStringList m_holders;
+    bool m_reverseDismissed = false;
     bool m_demoMode = false;
     int m_recordSeconds = 0;
     QTimer m_recordTick;

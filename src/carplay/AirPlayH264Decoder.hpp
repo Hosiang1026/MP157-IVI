@@ -9,6 +9,7 @@ public:
     AirPlayH264Decoder();
     ~AirPlayH264Decoder();
 
+    bool preload();
     bool configure(const QByteArray &avcC);
     QImage decode(const QByteArray &annexB);
     void flush();

@@ -3,11 +3,18 @@ import Ivi.Services 1.0
 
 Item {
     id: root
+    property Item glassSource
     property var running: []
     property var background: []
     property string currentId: ""
     property bool loadError: false
     readonly property bool opened: currentId !== ""
+    readonly property bool useGlass: opened && currentId !== "weather" && glassSource
+
+    function refreshGlass() {
+        if (frost.visible)
+            frost.refresh()
+    }
 
     ListModel {
         id: cache
@@ -82,9 +89,45 @@ Item {
 
     visible: opened
 
+    GlassPanel {
+        id: frost
+        anchors.fill: parent
+        visible: root.useGlass
+        sourceItem: root.glassSource
+        radius: 0
+        sheen: false
+        fill: SystemState.dark ? "#A61C1C1E" : "#B3F2F2F7"
+        stroke: "transparent"
+        strokeWidth: 0
+        blurAmount: 1.0
+        blurMax: 64
+    }
+
     Rectangle {
         anchors.fill: parent
+        visible: root.opened && !root.useGlass && root.currentId !== "weather"
         color: SystemState.page
+    }
+
+    Connections {
+        target: SystemState
+        function onDarkChanged() {
+            if (frost.visible)
+                frost.refresh()
+        }
+    }
+
+    Connections {
+        target: root
+        function onCurrentIdChanged() {
+            if (frost.visible)
+                frost.refresh()
+        }
+    }
+
+    onVisibleChanged: {
+        if (visible && frost.visible)
+            frost.refresh()
     }
 
     Repeater {
@@ -93,8 +136,8 @@ Item {
             required property string appId
             required property string entry
             anchors.fill: parent
-            anchors.topMargin: (appId === "carplay" && CarPlaySession.hasVideo) ? 0 : 8
-            anchors.bottomMargin: (appId === "carplay" && CarPlaySession.hasVideo) ? 0 : 16
+            anchors.topMargin: (appId === "weather" || (appId === "carplay" && CarPlaySession.hasVideo)) ? 0 : 8
+            anchors.bottomMargin: (appId === "weather" || (appId === "carplay" && CarPlaySession.hasVideo)) ? 0 : 16
             visible: appId === root.currentId
             source: entry
             onVisibleChanged: {

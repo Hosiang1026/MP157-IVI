@@ -50,7 +50,16 @@ public:
     int displayWidth() const { return m_displayW; }
     int displayHeight() const { return m_displayH; }
     void setDisplaySize(int width, int height);
+    void setSafeAreaInsets(int top, int bottom, int left, int right);
+    int safeAreaTop() const { return m_safeTop; }
+    int safeAreaBottom() const { return m_safeBottom; }
+    int safeAreaLeft() const { return m_safeLeft; }
+    int safeAreaRight() const { return m_safeRight; }
     bool sendTouch(double xNorm, double yNorm, bool down);
+    bool setNightMode(bool night);
+    bool sendHardKey(const QString &key, bool down = true);
+    bool sendLocation(double latitude, double longitude, double altitude, double speedMps,
+                      double course, double accuracy);
 
     struct PairingStore {
         void save(const QString &id, const QByteArray &ltpk) { map[id] = ltpk; }
@@ -64,6 +73,11 @@ signals:
     void sessionActive();
     void videoFrameChanged();
     void hostUiRequested();
+    void nowPlayingInfo(const QString &title, const QString &artist, bool playing, int positionSec,
+                        int durationSec);
+    void navigationInfo(bool active, const QString &text, const QString &turn, int speedLimit, int etaMin,
+                        const QString &destination);
+    void telephonyInfo(bool active, bool ringing, const QString &name, const QString &number);
     void log(const QString &msg);
     void failed(const QString &msg);
 
@@ -108,7 +122,12 @@ private:
     void handleTimingResponse(const QByteArray &msg);
     void resetNtpClock();
     bool sendEventCommand(const QVariantMap &command);
+    bool flushEventOut();
     static QByteArray buildTouchReport(int x, int y, bool down);
+    static QByteArray buildMediaReport(quint8 usageIndex);
+    bool sendHidReport(const QString &uuid, const QByteArray &report);
+    void handleIncomingCommand(const QVariantMap &cmd);
+    static QString mapManeuverTurn(const QVariant &maneuver);
     static void audioFormatFromBits(quint64 bits, int *sampleRate, int *channels, bool *aac);
 
     QTcpServer m_server;
@@ -145,6 +164,7 @@ private:
     QTcpSocket *m_eventSock = nullptr;
     QByteArray m_eventBuf;
     QByteArray m_eventPlain;
+    QByteArray m_eventOut;
     std::unique_ptr<AirPlayControlCipher> m_eventCipher;
     QByteArray m_sharedSecret;
     std::unique_ptr<AirPlayScreenStream> m_screen;
@@ -158,15 +178,24 @@ private:
     QImage m_videoFrame;
     int m_displayW = 1024;
     int m_displayH = 600;
+    int m_safeTop = 0;
+    int m_safeBottom = 0;
+    int m_safeLeft = 0;
+    int m_safeRight = 0;
+    bool m_nightMode = false;
     int m_eventCseq = 0;
     qint64 m_lastTouchMs = 0;
+    qint64 m_lastTouchSendMs = 0;
     double m_lastTouchX = 0.5;
     double m_lastTouchY = 0.5;
+    bool m_touchDown = false;
+    int m_lastTouchPx = -1;
+    int m_lastTouchPy = -1;
     QMutex m_decodeMutex;
     QQueue<QByteArray> m_decodeQueue;
     std::atomic_bool m_decodeBusy{false};
     std::atomic_bool m_waitIdr{false};
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     void *m_mfDecoder = nullptr;
 #endif
 };

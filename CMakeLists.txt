@@ -16,6 +16,7 @@ qt_standard_project_setup()
 
 add_subdirectory(src/core)
 add_subdirectory(src/carplay)
+add_subdirectory(src/androidauto)
 add_subdirectory(src/shell)
 
 if(IVI_BUILD_BOARD_PROBE)

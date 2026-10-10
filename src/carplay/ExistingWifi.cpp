@@ -1,5 +1,6 @@
 #include "ExistingWifi.hpp"
 
+#include <QFile>
 #include <QHostAddress>
 #include <QNetworkInterface>
 #include <QProcess>
@@ -63,7 +64,7 @@ bool isWlanName(const QString &name)
            n.contains(QStringLiteral("无线"));
 }
 
-int channelFromFrequency(ULONG freq)
+int channelFromFrequency(quint32 freq)
 {
     if (freq == 0)
         return 0;
@@ -144,6 +145,120 @@ QByteArray bssidFromNetsh()
     return bssid;
 }
 
+#ifdef Q_OS_LINUX
+QString runCmd(const QString &program, const QStringList &args, int timeoutMs = 8000)
+{
+    QProcess proc;
+    proc.setProcessChannelMode(QProcess::MergedChannels);
+    proc.start(program, args);
+    if (!proc.waitForFinished(timeoutMs)) {
+        proc.kill();
+        proc.waitForFinished(1000);
+        return {};
+    }
+    return QString::fromUtf8(proc.readAll());
+}
+
+QString linuxWifiIface()
+{
+    const QString env = qEnvironmentVariable("IVI_WIFI_IFACE").trimmed();
+    if (!env.isEmpty())
+        return env;
+    const QString out = runCmd(QStringLiteral("iw"), {QStringLiteral("dev")});
+    QString current;
+    for (QString line : out.split(QLatin1Char('\n'))) {
+        line = line.trimmed();
+        if (line.startsWith(QStringLiteral("Interface "))) {
+            current = line.mid(10).trimmed();
+            continue;
+        }
+        if (!current.isEmpty() && line.contains(QStringLiteral("type"))) {
+            if (!line.contains(QStringLiteral("p2p"))
+                && (current.startsWith(QStringLiteral("wlan"))
+                    || current.startsWith(QStringLiteral("wlp"))))
+                return current;
+            current.clear();
+        }
+    }
+    for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces()) {
+        const QString name = iface.name();
+        if (name.startsWith(QStringLiteral("wlan")) || name.startsWith(QStringLiteral("wlp")))
+            return name;
+    }
+    return {};
+}
+
+QByteArray parseMacBytes(const QString &mac)
+{
+    const QStringList parts = mac.split(QRegularExpression(QStringLiteral("[:-]")));
+    if (parts.size() != 6)
+        return {};
+    QByteArray out(6, 0);
+    for (int i = 0; i < 6; ++i) {
+        bool ok = false;
+        out[i] = char(parts[i].toInt(&ok, 16));
+        if (!ok)
+            return {};
+    }
+    return out;
+}
+
+int linuxChannel(const QString &iface)
+{
+    if (iface.isEmpty())
+        return 0;
+    const QString out = runCmd(QStringLiteral("iw"), {QStringLiteral("dev"), iface, QStringLiteral("info")});
+    const QRegularExpression re(QStringLiteral("channel\\s+(\\d+)"));
+    const auto m = re.match(out);
+    return m.hasMatch() ? m.captured(1).toInt() : 0;
+}
+
+QByteArray linuxBssid(const QString &iface)
+{
+    if (iface.isEmpty())
+        return {};
+    QString out = runCmd(QStringLiteral("iw"), {QStringLiteral("dev"), iface, QStringLiteral("link")});
+    QRegularExpression re(QStringLiteral("Connected to\\s+([0-9a-fA-F:]{17})"));
+    auto m = re.match(out);
+    if (m.hasMatch())
+        return parseMacBytes(m.captured(1));
+    out = runCmd(QStringLiteral("iw"), {QStringLiteral("dev"), iface, QStringLiteral("info")});
+    re = QRegularExpression(QStringLiteral("addr\\s+([0-9a-fA-F:]{17})"));
+    m = re.match(out);
+    if (m.hasMatch())
+        return parseMacBytes(m.captured(1));
+    QFile f(QStringLiteral("/sys/class/net/%1/address").arg(iface));
+    if (f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return parseMacBytes(QString::fromUtf8(f.readAll()).trimmed());
+    return {};
+}
+
+QString linuxCurrentSsid()
+{
+    QString out = runCmd(QStringLiteral("iwgetid"), {QStringLiteral("-r")});
+    out = out.trimmed();
+    if (!out.isEmpty())
+        return out;
+    out = runCmd(QStringLiteral("nmcli"),
+                 {QStringLiteral("-t"), QStringLiteral("-f"), QStringLiteral("ACTIVE,SSID"),
+                  QStringLiteral("dev"), QStringLiteral("wifi")});
+    for (const QString &line : out.split(QLatin1Char('\n'))) {
+        if (line.startsWith(QStringLiteral("yes:")))
+            return line.mid(4).trimmed();
+    }
+    const QString iface = linuxWifiIface();
+    if (!iface.isEmpty()) {
+        out = runCmd(QStringLiteral("iw"), {QStringLiteral("dev"), iface, QStringLiteral("info")});
+        const QRegularExpression re(QStringLiteral("ssid\\s+(.+)$"),
+                                    QRegularExpression::MultilineOption);
+        const auto m = re.match(out);
+        if (m.hasMatch())
+            return m.captured(1).trimmed();
+    }
+    return {};
+}
+#endif
+
 } // namespace
 
 QString ExistingWifi::interfaceMac()
@@ -218,6 +333,8 @@ QString ExistingWifi::currentSsid()
     }
     WlanCloseHandle(wlan, nullptr);
     return ssid;
+#elif defined(Q_OS_LINUX)
+    return linuxCurrentSsid();
 #else
     return {};
 #endif
@@ -232,6 +349,7 @@ QString ExistingWifi::profilePassword(const QString &ssid)
 {
     if (ssid.isEmpty())
         return {};
+#ifdef Q_OS_WIN
     QProcess proc;
     proc.setProgram(QStringLiteral("cmd.exe"));
     proc.setArguments({QStringLiteral("/c"),
@@ -253,6 +371,15 @@ QString ExistingWifi::profilePassword(const QString &ssid)
         QRegularExpression::CaseInsensitiveOption | QRegularExpression::MultilineOption);
     const auto m = re.match(out);
     return m.hasMatch() ? m.captured(1).trimmed() : QString();
+#elif defined(Q_OS_LINUX)
+    const QString out = runCmd(QStringLiteral("nmcli"),
+                               {QStringLiteral("-s"), QStringLiteral("-g"),
+                                QStringLiteral("802-11-wireless-security.psk"),
+                                QStringLiteral("connection"), QStringLiteral("show"), ssid});
+    return out.trimmed();
+#else
+    return {};
+#endif
 }
 
 ExistingWifi ExistingWifi::query()
@@ -281,14 +408,9 @@ ExistingWifi ExistingWifi::query()
                     info.bssid = QByteArray(reinterpret_cast<const char *>(
                                                 attr->wlanAssociationAttributes.dot11Bssid),
                                             6);
-                    WlanScan(wlan, &list->InterfaceInfo[i].InterfaceGuid,
-                             &attr->wlanAssociationAttributes.dot11Ssid, nullptr, nullptr);
-                    Sleep(400);
-                    PWLAN_BSS_LIST bss = nullptr;
-                    if (WlanGetNetworkBssList(wlan, &list->InterfaceInfo[i].InterfaceGuid,
-                                              &attr->wlanAssociationAttributes.dot11Ssid,
-                                              attr->wlanAssociationAttributes.dot11BssType,
-                                              FALSE, nullptr, &bss) == ERROR_SUCCESS && bss) {
+                    auto fillChannel = [&](PWLAN_BSS_LIST bss) {
+                        if (!bss)
+                            return;
                         for (DWORD b = 0; b < bss->dwNumberOfItems; ++b) {
                             if (memcmp(bss->wlanBssEntries[b].dot11Bssid,
                                        attr->wlanAssociationAttributes.dot11Bssid, 6) != 0)
@@ -301,7 +423,27 @@ ExistingWifi ExistingWifi::query()
                             info.channel = channelFromFrequency(
                                 bss->wlanBssEntries[0].ulChCenterFrequency);
                         }
+                    };
+                    PWLAN_BSS_LIST bss = nullptr;
+                    if (WlanGetNetworkBssList(wlan, &list->InterfaceInfo[i].InterfaceGuid,
+                                              &attr->wlanAssociationAttributes.dot11Ssid,
+                                              attr->wlanAssociationAttributes.dot11BssType,
+                                              FALSE, nullptr, &bss) == ERROR_SUCCESS && bss) {
+                        fillChannel(bss);
                         WlanFreeMemory(bss);
+                        bss = nullptr;
+                    }
+                    if (info.channel <= 0) {
+                        WlanScan(wlan, &list->InterfaceInfo[i].InterfaceGuid,
+                                 &attr->wlanAssociationAttributes.dot11Ssid, nullptr, nullptr);
+                        Sleep(200);
+                        if (WlanGetNetworkBssList(wlan, &list->InterfaceInfo[i].InterfaceGuid,
+                                                  &attr->wlanAssociationAttributes.dot11Ssid,
+                                                  attr->wlanAssociationAttributes.dot11BssType,
+                                                  FALSE, nullptr, &bss) == ERROR_SUCCESS && bss) {
+                            fillChannel(bss);
+                            WlanFreeMemory(bss);
+                        }
                     }
                 }
                 WlanFreeMemory(attr);
@@ -312,15 +454,29 @@ ExistingWifi ExistingWifi::query()
         }
         WlanCloseHandle(wlan, nullptr);
     }
+#elif defined(Q_OS_LINUX)
+    info.ssid = currentSsid();
+    const QString iface = linuxWifiIface();
+    if (info.channel <= 0)
+        info.channel = linuxChannel(iface);
+    if (info.bssid.size() != 6)
+        info.bssid = linuxBssid(iface);
+    if (info.mac.isEmpty() && !iface.isEmpty()) {
+        QFile f(QStringLiteral("/sys/class/net/%1/address").arg(iface));
+        if (f.open(QIODevice::ReadOnly | QIODevice::Text))
+            info.mac = QString::fromUtf8(f.readAll()).trimmed().toUpper();
+    }
 #else
     info.ssid = currentSsid();
 #endif
     if (info.ssid.isEmpty())
         info.ssid = currentSsid();
+#ifdef Q_OS_WIN
     if (info.channel <= 0)
         info.channel = channelFromNetsh();
     if (info.bssid.size() != 6)
         info.bssid = bssidFromNetsh();
+#endif
     return info;
 }
 
@@ -370,6 +526,41 @@ QVariantList ExistingWifi::scanNetworks()
     WlanFreeMemory(ifaces);
     WlanCloseHandle(wlan, nullptr);
 
+    std::sort(out.begin(), out.end(), [](const QVariant &a, const QVariant &b) {
+        const auto ma = a.toMap();
+        const auto mb = b.toMap();
+        if (ma.value(QStringLiteral("connected")).toBool() != mb.value(QStringLiteral("connected")).toBool())
+            return ma.value(QStringLiteral("connected")).toBool();
+        return ma.value(QStringLiteral("signal")).toInt() > mb.value(QStringLiteral("signal")).toInt();
+    });
+#elif defined(Q_OS_LINUX)
+    runCmd(QStringLiteral("nmcli"),
+           {QStringLiteral("dev"), QStringLiteral("wifi"), QStringLiteral("rescan")}, 12000);
+    const QString text = runCmd(
+        QStringLiteral("nmcli"),
+        {QStringLiteral("-t"), QStringLiteral("-f"), QStringLiteral("SSID,SIGNAL,SECURITY,ACTIVE"),
+         QStringLiteral("dev"), QStringLiteral("wifi"), QStringLiteral("list")},
+        12000);
+    QSet<QString> seen;
+    for (const QString &line : text.split(QLatin1Char('\n'))) {
+        if (line.isEmpty())
+            continue;
+        const QStringList parts = line.split(QLatin1Char(':'));
+        if (parts.isEmpty())
+            continue;
+        const QString ssid = parts.value(0).trimmed();
+        if (ssid.isEmpty() || seen.contains(ssid))
+            continue;
+        seen.insert(ssid);
+        QVariantMap item;
+        item.insert(QStringLiteral("ssid"), ssid);
+        item.insert(QStringLiteral("signal"), parts.value(1).toInt());
+        item.insert(QStringLiteral("secured"), !parts.value(2).trimmed().isEmpty()
+                                                   && parts.value(2) != QStringLiteral("--"));
+        item.insert(QStringLiteral("connected"),
+                    parts.value(3).trimmed().startsWith(QStringLiteral("yes")));
+        out.append(item);
+    }
     std::sort(out.begin(), out.end(), [](const QVariant &a, const QVariant &b) {
         const auto ma = a.toMap();
         const auto mb = b.toMap();
@@ -465,6 +656,30 @@ bool ExistingWifi::connectTo(const QString &ssid, const QString &password, QStri
     if (connRc != ERROR_SUCCESS) {
         if (error)
             *error = QStringLiteral("连接失败 (%1)").arg(connRc);
+        return false;
+    }
+    return true;
+#elif defined(Q_OS_LINUX)
+    if (ssid.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("SSID 为空");
+        return false;
+    }
+    QStringList args{QStringLiteral("dev"), QStringLiteral("wifi"), QStringLiteral("connect"), ssid};
+    if (!password.isEmpty())
+        args << QStringLiteral("password") << password;
+    QProcess proc;
+    proc.setProcessChannelMode(QProcess::MergedChannels);
+    proc.start(QStringLiteral("nmcli"), args);
+    if (!proc.waitForFinished(30000)) {
+        proc.kill();
+        if (error)
+            *error = QStringLiteral("连接超时");
+        return false;
+    }
+    if (proc.exitCode() != 0) {
+        if (error)
+            *error = QString::fromUtf8(proc.readAll()).trimmed();
         return false;
     }
     return true;

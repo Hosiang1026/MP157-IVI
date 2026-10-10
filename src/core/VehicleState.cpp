@@ -3,6 +3,7 @@
 #include "WeatherService.hpp"
 
 #include <algorithm>
+#include <QDateTime>
 #include <QRandomGenerator>
 #include <QSettings>
 #include <QtMath>
@@ -47,22 +48,31 @@ void VehicleState::load()
     m_trunkOpen = s.value(QStringLiteral("trunkOpen"), m_trunkOpen).toBool();
     m_rangeKm = qMax(20, qRound(m_fuel * 6.1));
 
-    const QVariantList hist = s.value(QStringLiteral("batteryHistory")).toList();
+    m_batteryRangeDays = qBound(1, s.value(QStringLiteral("batteryRangeDays"), 20).toInt(), kBatteryKeepDays);
+    const QVariantList hist = s.value(QStringLiteral("batteryHistoryV2")).toList();
     m_batteryHistory.clear();
     m_batteryHistory.reserve(hist.size());
-    for (const QVariant &v : hist) {
-        const qreal x = v.toDouble();
-        if (x >= 10.0 && x <= 16.0)
-            m_batteryHistory.append(x);
+    for (const QVariant &item : hist) {
+        const QVariantMap m = item.toMap();
+        const qreal x = m.value(QStringLiteral("v")).toDouble();
+        const qint64 t = m.value(QStringLiteral("t")).toLongLong();
+        if (x >= 10.0 && x <= 16.0 && t > 0)
+            m_batteryHistory.append({t, x});
     }
-    if (m_batteryHistory.size() > kBatteryHistoryMax)
-        m_batteryHistory = m_batteryHistory.mid(m_batteryHistory.size() - kBatteryHistoryMax);
-    if (m_batteryHistory.isEmpty())
+    if (m_batteryHistory.isEmpty()) {
+        const QVariantList legacy = s.value(QStringLiteral("batteryHistory")).toList();
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        for (int i = 0; i < legacy.size(); ++i) {
+            const qreal x = legacy.at(i).toDouble();
+            if (x >= 10.0 && x <= 16.0)
+                m_batteryHistory.append({now - qint64(legacy.size() - 1 - i) * 3600000LL, x});
+        }
+    }
+    trimBatteryHistory();
+    if (m_batteryHistory.size() < 24 * 7)
         seedBatteryHistory();
-    else {
-        m_batteryHistoryMin = *std::min_element(m_batteryHistory.cbegin(), m_batteryHistory.cend());
-        m_batteryHistoryMax = *std::max_element(m_batteryHistory.cbegin(), m_batteryHistory.cend());
-    }
+    else
+        refreshBatteryRangeStats();
     s.endGroup();
 }
 
@@ -89,41 +99,93 @@ void VehicleState::persist() const
     s.setValue(QStringLiteral("hoodOpen"), m_hoodOpen);
     s.setValue(QStringLiteral("trunkOpen"), m_trunkOpen);
 
+    s.setValue(QStringLiteral("batteryRangeDays"), m_batteryRangeDays);
     QVariantList hist;
     hist.reserve(m_batteryHistory.size());
-    for (qreal v : m_batteryHistory)
-        hist.append(v);
-    s.setValue(QStringLiteral("batteryHistory"), hist);
+    for (const BatterySample &smp : m_batteryHistory) {
+        QVariantMap m;
+        m.insert(QStringLiteral("t"), smp.ms);
+        m.insert(QStringLiteral("v"), smp.v);
+        hist.append(m);
+    }
+    s.setValue(QStringLiteral("batteryHistoryV2"), hist);
     s.endGroup();
+}
+
+void VehicleState::trimBatteryHistory()
+{
+    const qint64 cutoff = QDateTime::currentMSecsSinceEpoch() - qint64(kBatteryKeepDays) * 24 * 3600 * 1000;
+    while (!m_batteryHistory.isEmpty() && m_batteryHistory.first().ms < cutoff)
+        m_batteryHistory.removeFirst();
+    while (m_batteryHistory.size() > kBatteryHistoryMax)
+        m_batteryHistory.removeFirst();
+}
+
+void VehicleState::refreshBatteryRangeStats()
+{
+    const auto samples = rangedBatterySamples();
+    if (samples.isEmpty()) {
+        m_batteryHistoryMin = 11.5;
+        m_batteryHistoryMax = 14.8;
+        return;
+    }
+    m_batteryHistoryMin = samples.first().v;
+    m_batteryHistoryMax = samples.first().v;
+    for (const BatterySample &s : samples) {
+        m_batteryHistoryMin = qMin(m_batteryHistoryMin, s.v);
+        m_batteryHistoryMax = qMax(m_batteryHistoryMax, s.v);
+    }
+}
+
+QVector<VehicleState::BatterySample> VehicleState::rangedBatterySamples() const
+{
+    const qint64 cutoff = QDateTime::currentMSecsSinceEpoch() - qint64(m_batteryRangeDays) * 24 * 3600 * 1000;
+    QVector<BatterySample> out;
+    out.reserve(m_batteryHistory.size());
+    for (const BatterySample &s : m_batteryHistory) {
+        if (s.ms >= cutoff)
+            out.append(s);
+    }
+    return out;
 }
 
 void VehicleState::seedBatteryHistory()
 {
     m_batteryHistory.clear();
-    m_batteryHistory.reserve(96);
+    m_batteryHistory.reserve(kBatteryHistoryMax);
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
     qreal v = 12.6;
-    for (int i = 0; i < 96; ++i) {
-        if (i < 24)
-            v = 12.55 + (QRandomGenerator::global()->generateDouble() - 0.5) * 0.08;
-        else if (i < 72)
-            v = 13.9 + (QRandomGenerator::global()->generateDouble() - 0.5) * 0.25;
+    for (int i = 0; i < kBatteryHistoryMax; ++i) {
+        const int hourOfDay = i % 24;
+        if (hourOfDay >= 7 && hourOfDay <= 21)
+            v = 13.9 + (QRandomGenerator::global()->generateDouble() - 0.5) * 0.3;
         else
-            v = 12.45 + (QRandomGenerator::global()->generateDouble() - 0.5) * 0.12;
-        m_batteryHistory.append(qBound(11.8, v, 14.6));
+            v = 12.5 + (QRandomGenerator::global()->generateDouble() - 0.5) * 0.15;
+        const qint64 t = now - qint64(kBatteryHistoryMax - 1 - i) * 3600000LL;
+        m_batteryHistory.append({t, qBound(11.8, v, 14.6)});
     }
-    m_batteryHistoryMin = *std::min_element(m_batteryHistory.cbegin(), m_batteryHistory.cend());
-    m_batteryHistoryMax = *std::max_element(m_batteryHistory.cbegin(), m_batteryHistory.cend());
-    m_batteryVoltage = m_batteryHistory.last();
+    m_batteryVoltage = m_batteryHistory.last().v;
+    refreshBatteryRangeStats();
 }
 
-void VehicleState::pushBatterySample(qreal v)
+void VehicleState::pushBatterySample(qreal v, qint64 ms)
 {
     v = qBound(10.0, v, 15.5);
-    m_batteryHistory.append(v);
-    if (m_batteryHistory.size() > kBatteryHistoryMax)
-        m_batteryHistory.removeFirst();
-    m_batteryHistoryMin = *std::min_element(m_batteryHistory.cbegin(), m_batteryHistory.cend());
-    m_batteryHistoryMax = *std::max_element(m_batteryHistory.cbegin(), m_batteryHistory.cend());
+    if (ms <= 0)
+        ms = QDateTime::currentMSecsSinceEpoch();
+    if (!m_batteryHistory.isEmpty()) {
+        const qint64 lastHour = m_batteryHistory.last().ms / 3600000;
+        const qint64 curHour = ms / 3600000;
+        if (lastHour == curHour) {
+            m_batteryHistory.last().v = v;
+            m_batteryHistory.last().ms = ms;
+            refreshBatteryRangeStats();
+            return;
+        }
+    }
+    m_batteryHistory.append({ms, v});
+    trimBatteryHistory();
+    refreshBatteryRangeStats();
 }
 
 void VehicleState::sampleBattery()
@@ -140,7 +202,7 @@ void VehicleState::sampleBattery()
     m_batteryVoltage = qBound(10.5, m_batteryVoltage, 14.8);
 
     ++m_batterySampleTick;
-    if (m_batterySampleTick >= 10) {
+    if (m_batterySampleTick >= 60) {
         m_batterySampleTick = 0;
         pushBatterySample(m_batteryVoltage);
         persist();
@@ -315,15 +377,38 @@ bool VehicleState::batteryLow() const { return m_batteryVoltage < 12.0; }
 
 QVariantList VehicleState::batteryHistory() const
 {
+    const auto samples = rangedBatterySamples();
     QVariantList out;
-    out.reserve(m_batteryHistory.size());
-    for (qreal v : m_batteryHistory)
-        out.append(v);
+    out.reserve(samples.size());
+    for (const BatterySample &s : samples)
+        out.append(s.v);
+    return out;
+}
+
+QVariantList VehicleState::batteryHistoryTimes() const
+{
+    const auto samples = rangedBatterySamples();
+    QVariantList out;
+    out.reserve(samples.size());
+    for (const BatterySample &s : samples)
+        out.append(double(s.ms));
     return out;
 }
 
 qreal VehicleState::batteryHistoryMin() const { return m_batteryHistoryMin; }
 qreal VehicleState::batteryHistoryMax() const { return m_batteryHistoryMax; }
+int VehicleState::batteryRangeDays() const { return m_batteryRangeDays; }
+
+void VehicleState::setBatteryRangeDays(int days)
+{
+    days = qBound(1, days, kBatteryKeepDays);
+    if (days == m_batteryRangeDays)
+        return;
+    m_batteryRangeDays = days;
+    refreshBatteryRangeStats();
+    persist();
+    emit changed();
+}
 bool VehicleState::brakeWear() const { return m_brakeWear; }
 bool VehicleState::engineFault() const { return m_engineFault; }
 bool VehicleState::absFault() const { return m_absFault; }

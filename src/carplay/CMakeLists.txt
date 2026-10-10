@@ -8,6 +8,7 @@ set(CARPLAY_SOURCES
     Iap2WirelessBootstrap.cpp
     BluetoothRfcomm.cpp
     BluetoothDevices.cpp
+    BluetoothMediaHub.cpp
     AirPlayCrypto.cpp
     AirPlayIdentity.cpp
     AirPlayControlCipher.cpp
@@ -22,6 +23,7 @@ set(CARPLAY_SOURCES
     AirPlayMirrorSession.cpp
     BonjourAdvertiser.cpp
     ExistingWifi.cpp
+    WifiAccessPoint.cpp
     CarPlaySession.cpp
     third_party/monocypher.c
 )
@@ -32,7 +34,7 @@ target_include_directories(ivi-carplay PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
-target_link_libraries(ivi-carplay PUBLIC Qt6::Core Qt6::Network Qt6::Gui Qt6::Concurrent)
+target_link_libraries(ivi-carplay PUBLIC Qt6::Core Qt6::Network Qt6::Gui Qt6::Concurrent ivi-core)
 if(WIN32)
     target_link_libraries(ivi-carplay PUBLIC bcrypt ncrypt crypt32 ws2_32 Bthprops wlanapi mfplat mf mfuuid wmcodecdspuuid ole32 winmm)
 elseif(UNIX)

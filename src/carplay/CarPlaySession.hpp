@@ -14,6 +14,11 @@
 
 #include <atomic>
 
+class CallSession;
+class GpsSource;
+class MediaSession;
+class NavSession;
+
 class CarPlaySession : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
@@ -32,9 +37,19 @@ class CarPlaySession : public QObject {
     Q_PROPERTY(bool hasVideo READ hasVideo NOTIFY videoFrameChanged)
     Q_PROPERTY(int displayWidth READ displayWidth NOTIFY displaySizeChanged)
     Q_PROPERTY(int displayHeight READ displayHeight NOTIFY displaySizeChanged)
+    Q_PROPERTY(int safeAreaTop READ safeAreaTop NOTIFY safeAreaChanged)
+    Q_PROPERTY(int safeAreaBottom READ safeAreaBottom NOTIFY safeAreaChanged)
+    Q_PROPERTY(int safeAreaLeft READ safeAreaLeft NOTIFY safeAreaChanged)
+    Q_PROPERTY(int safeAreaRight READ safeAreaRight NOTIFY safeAreaChanged)
+    Q_PROPERTY(bool nightMode READ nightMode WRITE setNightMode NOTIFY nightModeChanged)
 public:
     explicit CarPlaySession(QObject *parent = nullptr);
     ~CarPlaySession() override;
+
+    void setGpsSource(GpsSource *gps);
+    void setMediaSession(MediaSession *media);
+    void setNavSession(NavSession *nav);
+    void setCallSession(CallSession *call);
 
     QString status() const;
     QString detail() const;
@@ -53,6 +68,12 @@ public:
     bool hasVideo() const;
     int displayWidth() const;
     int displayHeight() const;
+    int safeAreaTop() const;
+    int safeAreaBottom() const;
+    int safeAreaLeft() const;
+    int safeAreaRight() const;
+    bool nightMode() const;
+    void setNightMode(bool night);
 
     Q_INVOKABLE void reloadIdentity();
     Q_INVOKABLE void refreshWifi();
@@ -62,7 +83,10 @@ public:
     Q_INVOKABLE void selectBluetooth(const QString &address, const QString &name);
     Q_INVOKABLE bool pairBluetooth(const QString &address);
     Q_INVOKABLE void setDisplaySize(int width, int height);
+    Q_INVOKABLE void setSafeAreaInsets(int top, int bottom, int left, int right);
     Q_INVOKABLE void sendTouch(double xNorm, double yNorm, bool down);
+    Q_INVOKABLE bool sendHardKey(const QString &key, bool down = true);
+    Q_INVOKABLE bool sendLocationNow();
     Q_INVOKABLE void start();
     Q_INVOKABLE void reconnectLast();
     Q_INVOKABLE void stop();
@@ -79,6 +103,8 @@ signals:
     void bluetoothDevicesChanged();
     void videoFrameChanged();
     void displaySizeChanged();
+    void safeAreaChanged();
+    void nightModeChanged();
     void hostUiRequested();
 
 private:
@@ -93,8 +119,13 @@ private:
     void stopInternal();
     void recoverStaleRunning();
     void emitCanStart();
+    void onGpsUpdated();
 
     LocalMfiAuth m_mfi;
+    GpsSource *m_gps = nullptr;
+    MediaSession *m_media = nullptr;
+    NavSession *m_nav = nullptr;
+    CallSession *m_call = nullptr;
     AirPlayIdentity m_airPlayIdentity;
     AirPlayServer m_airPlay;
     BonjourAdvertiser m_bonjour;
@@ -115,4 +146,5 @@ private:
     QVariantList m_bluetoothDevices;
     bool m_wifiConnected = false;
     bool m_running = false;
+    bool m_nightMode = false;
 };

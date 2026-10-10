@@ -1,70 +1,21 @@
 import QtQuick
 import QtQuick.Controls
 import Ivi.Services 1.0
+import IviShell
 
 Item {
     function tireColor(value) {
-        return value < 2.3 ? "#FF9500" : SystemState.ink
+        return value < 2.3 ? SystemState.warning : SystemState.ink
     }
 
     Rectangle {
         anchors.fill: parent
-        color: SystemState.page
-    }
-
-    Rectangle {
-        id: alertBar
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        height: VehicleState.alertCount > 0 ? 40 : 0
-        visible: height > 0
-        color: VehicleState.alertColor
-        z: 2
-
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.top
-            anchors.topMargin: VehicleState.alertCount > 1 ? 4 : 10
-            text: VehicleState.alertText
-            color: "#FFFFFF"
-            font.pixelSize: 14
-            font.bold: true
-        }
-
-        Row {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 5
-            spacing: 5
-            visible: VehicleState.alertCount > 1
-            Repeater {
-                model: VehicleState.alertCount
-                delegate: Rectangle {
-                    required property int index
-                    width: 5
-                    height: 5
-                    radius: 2.5
-                    color: index === VehicleState.alertIndex ? "#FFFFFF" : "#FFFFFF80"
-                }
-            }
-        }
-
-        Text {
-            anchors.right: parent.right
-            anchors.rightMargin: 12
-            anchors.verticalCenter: parent.verticalCenter
-            visible: VehicleState.alertCount > 1
-            text: (VehicleState.alertIndex + 1) + "/" + VehicleState.alertCount
-            color: "#FFFFFF"
-            font.pixelSize: 12
-        }
+        color: "transparent"
     }
 
     Flickable {
         id: flick
         anchors.fill: parent
-        anchors.topMargin: VehicleState.alertCount > 0 ? 40 : 0
         contentWidth: width
         contentHeight: body.height + 24
         clip: true
@@ -72,15 +23,18 @@ Item {
         flickableDirection: Flickable.VerticalFlick
 
         ScrollBar.vertical: ScrollBar {
+            id: vbar
             policy: ScrollBar.AsNeeded
-            width: 6
-            padding: 0
+            width: 3
+            padding: 1
             contentItem: Rectangle {
-                implicitWidth: 6
-                radius: 3
+                implicitWidth: 3
+                radius: 1.5
                 color: SystemState.secondary
-                opacity: 0.55
+                opacity: vbar.active || vbar.hovered ? 0.45 : 0
+                Behavior on opacity { NumberAnimation { duration: 160 } }
             }
+            background: Item {}
         }
 
         Column {
@@ -98,8 +52,10 @@ Item {
             Rectangle {
                 width: 240
                 height: parent.height
-                radius: 16
+                radius: 14
                 color: SystemState.card
+                border.color: SystemState.separator
+                border.width: 1 / Screen.devicePixelRatio
 
                 Column {
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -128,20 +84,23 @@ Item {
                     spacing: 8
                     Repeater {
                         model: ["P", "R", "N", "D"]
-                        delegate: Rectangle {
+                        delegate: IosPressable {
                             required property string modelData
                             width: 46
                             height: 38
-                            radius: 10
-                            color: VehicleState.gear === modelData ? "#007AFF" : SystemState.fill
-                            Text {
-                                anchors.centerIn: parent
-                                text: modelData
-                                color: VehicleState.gear === modelData ? "#FFFFFF" : SystemState.ink
-                                font.pixelSize: 16
-                                font.bold: true
+                            onClicked: VehicleState.setGear(modelData)
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 10
+                                color: VehicleState.gear === modelData ? SystemState.selected : SystemState.fill
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: modelData
+                                    color: VehicleState.gear === modelData ? SystemState.tint : SystemState.ink
+                                    font.pixelSize: 16
+                                    font.bold: VehicleState.gear === modelData
+                                }
                             }
-                            MouseArea { anchors.fill: parent; onClicked: VehicleState.setGear(modelData) }
                         }
                     }
                 }
@@ -150,8 +109,10 @@ Item {
             Rectangle {
                 width: parent.width - 468
                 height: parent.height
-                radius: 16
+                radius: 14
                 color: SystemState.card
+                border.color: SystemState.separator
+                border.width: 1 / Screen.devicePixelRatio
 
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -213,7 +174,7 @@ Item {
                             width: 52
                             height: 20
                             radius: 8
-                            color: VehicleState.lights ? "#007AFF" : SystemState.fill
+                            color: VehicleState.lights ? SystemState.tint : SystemState.fill
                         }
                         Rectangle {
                             anchors.horizontalCenter: parent.horizontalCenter
@@ -224,7 +185,7 @@ Item {
                             width: 72
                             radius: 22
                             color: SystemState.fill
-                            border.color: VehicleState.locked ? "#34C759" : "#FF9500"
+                            border.color: VehicleState.locked ? SystemState.success : SystemState.warning
                             border.width: 3
                             Rectangle {
                                 anchors.horizontalCenter: parent.horizontalCenter
@@ -268,8 +229,10 @@ Item {
             Rectangle {
                 width: 204
                 height: parent.height
-                radius: 16
+                radius: 14
                 color: SystemState.card
+                border.color: SystemState.separator
+                border.width: 1 / Screen.devicePixelRatio
 
                 Column {
                     anchors.fill: parent
@@ -299,13 +262,13 @@ Item {
                                     width: parent.width * VehicleState.fuel / 100
                                     height: parent.height
                                     radius: 3
-                                    color: VehicleState.fuel < 20 ? "#FF9500" : "#34C759"
+                                    color: VehicleState.fuel < 20 ? SystemState.warning : SystemState.success
                                 }
                             }
                         }
                     }
 
-                    Rectangle { width: parent.width; height: 1; color: SystemState.fill }
+                    Rectangle { width: parent.width; height: 1; color: SystemState.separator }
 
                     Item {
                         width: parent.width
@@ -328,7 +291,7 @@ Item {
                         }
                     }
 
-                    Rectangle { width: parent.width; height: 1; color: SystemState.fill }
+                    Rectangle { width: parent.width; height: 1; color: SystemState.separator }
 
                     Item {
                         width: parent.width
@@ -345,7 +308,7 @@ Item {
                                 Text { text: "小计 " + VehicleState.trip + " km"; color: SystemState.secondary; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
                                 Text {
                                     text: "清零"
-                                    color: "#007AFF"
+                                    color: SystemState.tint
                                     font.pixelSize: 13
                                     anchors.verticalCenter: parent.verticalCenter
                                     MouseArea { anchors.fill: parent; onClicked: VehicleState.resetTrip() }
@@ -360,94 +323,236 @@ Item {
         Row {
             id: ctrlRow
             width: parent.width
-            height: 52
+            height: 60
             spacing: 8
-
             readonly property real btnW: (width - 40) / 6
 
-            Rectangle {
+            component TelltaleBtn: IosPressable {
+                property string glyph: ""
+                property bool active: false
+                property bool warn: false
+                readonly property color face: warn ? SystemState.warning
+                                               : (active ? SystemState.tint : SystemState.fill)
+                readonly property color glyphInk: (warn || active) ? "#FFFFFF" : SystemState.ink
                 width: ctrlRow.btnW
-                height: 52
-                radius: 12
-                color: VehicleState.locked ? "#34C759" : "#FF9500"
-                Text { anchors.centerIn: parent; text: VehicleState.locked ? "已锁" : "未锁"; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true }
-                MouseArea { anchors.fill: parent; onClicked: VehicleState.toggleLocked() }
-            }
-            Rectangle {
-                width: ctrlRow.btnW
-                height: 52
-                radius: 12
-                color: VehicleState.lights ? "#007AFF" : SystemState.fill
-                Text { anchors.centerIn: parent; text: VehicleState.lights ? "大灯开" : "大灯关"; color: VehicleState.lights ? "#FFFFFF" : SystemState.ink; font.pixelSize: 14; font.bold: true }
-                MouseArea { anchors.fill: parent; onClicked: VehicleState.toggleLights() }
-            }
-            Rectangle {
-                width: ctrlRow.btnW
-                height: 52
-                radius: 12
-                color: VehicleState.seatbeltOn ? "#34C759" : "#FF9500"
-                Text { anchors.centerIn: parent; text: VehicleState.seatbeltOn ? "安全带" : "未系带"; color: "#FFFFFF"; font.pixelSize: 14; font.bold: true }
-                MouseArea { anchors.fill: parent; onClicked: VehicleState.toggleSeatbelt() }
-            }
-            Rectangle {
-                width: ctrlRow.btnW
-                height: 52
-                radius: 12
-                color: VehicleState.handbrakeOn ? "#FF9500" : SystemState.fill
-                Text { anchors.centerIn: parent; text: VehicleState.handbrakeOn ? "手刹起" : "手刹"; color: VehicleState.handbrakeOn ? "#FFFFFF" : SystemState.ink; font.pixelSize: 14; font.bold: true }
-                MouseArea { anchors.fill: parent; onClicked: VehicleState.toggleHandbrake() }
-            }
-            Rectangle {
-                width: ctrlRow.btnW
-                height: 52
-                radius: 12
-                color: VehicleState.doorAjar ? "#FF9500" : SystemState.fill
-                Text { anchors.centerIn: parent; text: VehicleState.doorAjar ? "门未关" : "门已关"; color: VehicleState.doorAjar ? "#FFFFFF" : SystemState.ink; font.pixelSize: 14; font.bold: true }
-                MouseArea { anchors.fill: parent; onClicked: VehicleState.toggleDoorAjar() }
-            }
-            Rectangle {
-                width: ctrlRow.btnW
-                height: 52
-                radius: 12
-                color: VehicleState.hoodOpen || VehicleState.trunkOpen ? "#FF9500" : SystemState.fill
-                Text {
-                    anchors.centerIn: parent
-                    text: VehicleState.hoodOpen ? "引擎盖" : (VehicleState.trunkOpen ? "后备箱" : "舱盖关")
-                    color: VehicleState.hoodOpen || VehicleState.trunkOpen ? "#FFFFFF" : SystemState.ink
-                    font.pixelSize: 14
-                    font.bold: true
+                height: 60
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 16
+                    color: face
+                    border.color: (warn || active) ? "transparent" : SystemState.separator
+                    border.width: (warn || active) ? 0 : 0.5
+                    Canvas {
+                        id: icon
+                        width: 36
+                        height: 34
+                        anchors.centerIn: parent
+                        property string g: glyph
+                        property bool on: active
+                        property bool bad: warn
+                        property color ink: glyphInk
+                        onGChanged: requestPaint()
+                        onOnChanged: requestPaint()
+                        onBadChanged: requestPaint()
+                        onInkChanged: requestPaint()
+                        onPaint: {
+                            const ctx = getContext("2d")
+                            ctx.reset()
+                            ctx.clearRect(0, 0, width, height)
+                            ctx.imageSmoothingEnabled = true
+                            ctx.strokeStyle = ink
+                            ctx.fillStyle = ink
+                            ctx.lineWidth = 2.6
+                            ctx.lineCap = "round"
+                            ctx.lineJoin = "round"
+                            if (g === "lock") {
+                                ctx.beginPath()
+                                ctx.moveTo(8, 16)
+                                ctx.lineTo(28, 16)
+                                ctx.lineTo(28, 30)
+                                ctx.lineTo(8, 30)
+                                ctx.closePath()
+                                ctx.fill()
+                                ctx.beginPath()
+                                ctx.arc(18, 16, 8, Math.PI, 0)
+                                ctx.stroke()
+                                if (!on) {
+                                    ctx.clearRect(20, 2, 14, 14)
+                                    ctx.beginPath()
+                                    ctx.arc(24, 12, 6.5, Math.PI * 0.85, Math.PI * 1.95)
+                                    ctx.stroke()
+                                }
+                                ctx.fillStyle = face
+                                ctx.beginPath()
+                                ctx.arc(18, 23, 2.2, 0, Math.PI * 2)
+                                ctx.fill()
+                            } else if (g === "lights") {
+                                ctx.beginPath()
+                                ctx.moveTo(4, 11)
+                                ctx.lineTo(14, 11)
+                                ctx.lineTo(20, 5)
+                                ctx.lineTo(20, 29)
+                                ctx.lineTo(14, 23)
+                                ctx.lineTo(4, 23)
+                                ctx.closePath()
+                                ctx.fill()
+                                ctx.lineWidth = 2.8
+                                ctx.beginPath()
+                                ctx.moveTo(24, 9); ctx.lineTo(32, 5)
+                                ctx.moveTo(24, 17); ctx.lineTo(32, 17)
+                                ctx.moveTo(24, 25); ctx.lineTo(32, 29)
+                                ctx.stroke()
+                            } else if (g === "belt") {
+                                ctx.lineWidth = 3.2
+                                ctx.beginPath()
+                                ctx.moveTo(7, 4); ctx.lineTo(29, 30)
+                                ctx.moveTo(29, 4); ctx.lineTo(7, 30)
+                                ctx.stroke()
+                                ctx.fillRect(12, 13, 12, 7)
+                            } else if (g === "brake") {
+                                ctx.lineWidth = 3
+                                ctx.beginPath()
+                                ctx.arc(18, 17, 13, 0, Math.PI * 2)
+                                ctx.stroke()
+                                ctx.font = "bold 15px sans-serif"
+                                ctx.textAlign = "center"
+                                ctx.textBaseline = "middle"
+                                ctx.fillText("P", 18, 18)
+                            } else if (g === "door") {
+                                ctx.lineWidth = 2.8
+                                ctx.strokeRect(5, 3, 16, 28)
+                                if (bad) {
+                                    ctx.beginPath()
+                                    ctx.moveTo(21, 5)
+                                    ctx.lineTo(31, 9)
+                                    ctx.lineTo(31, 27)
+                                    ctx.lineTo(21, 23)
+                                    ctx.closePath()
+                                    ctx.fill()
+                                } else {
+                                    ctx.beginPath()
+                                    ctx.arc(17, 17, 2, 0, Math.PI * 2)
+                                    ctx.fill()
+                                }
+                            } else if (g === "hood") {
+                                ctx.beginPath()
+                                ctx.moveTo(2, 20)
+                                ctx.quadraticCurveTo(18, bad ? 3 : 10, 34, 20)
+                                ctx.lineTo(30, 27)
+                                ctx.lineTo(6, 27)
+                                ctx.closePath()
+                                ctx.fill()
+                                ctx.lineWidth = 2.8
+                                ctx.beginPath()
+                                ctx.moveTo(10, 27); ctx.lineTo(10, 31)
+                                ctx.moveTo(26, 27); ctx.lineTo(26, 31)
+                                ctx.stroke()
+                            }
+                        }
+                        Connections {
+                            target: SystemState
+                            function onDarkChanged() { icon.requestPaint() }
+                        }
+                    }
                 }
-                MouseArea { anchors.fill: parent; onClicked: VehicleState.cycleHoodTrunk() }
+            }
+
+            TelltaleBtn {
+                glyph: "lock"
+                active: VehicleState.locked
+                onClicked: VehicleState.toggleLocked()
+            }
+            TelltaleBtn {
+                glyph: "lights"
+                active: VehicleState.lights
+                onClicked: VehicleState.toggleLights()
+            }
+            TelltaleBtn {
+                glyph: "belt"
+                active: VehicleState.seatbeltOn
+                warn: !VehicleState.seatbeltOn
+                onClicked: VehicleState.toggleSeatbelt()
+            }
+            TelltaleBtn {
+                glyph: "brake"
+                active: VehicleState.handbrakeOn
+                warn: VehicleState.handbrakeOn
+                onClicked: VehicleState.toggleHandbrake()
+            }
+            TelltaleBtn {
+                glyph: "door"
+                active: !VehicleState.doorAjar
+                warn: VehicleState.doorAjar
+                onClicked: VehicleState.toggleDoorAjar()
+            }
+            TelltaleBtn {
+                glyph: "hood"
+                active: !(VehicleState.hoodOpen || VehicleState.trunkOpen)
+                warn: VehicleState.hoodOpen || VehicleState.trunkOpen
+                onClicked: VehicleState.cycleHoodTrunk()
             }
         }
 
         Rectangle {
             width: parent.width
-            height: 200
-            radius: 16
+            height: 220
+            radius: 14
             color: SystemState.card
+            border.color: SystemState.separator
+            border.width: 1 / Screen.devicePixelRatio
 
             Row {
+                id: battHeader
                 anchors.left: parent.left
+                anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.margins: 12
                 spacing: 12
+
                 Column {
                     spacing: 1
                     Text { text: "蓄电池"; color: SystemState.secondary; font.pixelSize: 12 }
                     Text {
                         text: VehicleState.batteryVoltage.toFixed(2) + " V"
-                        color: VehicleState.batteryLow ? "#FF3B30" : SystemState.ink
+                        color: VehicleState.batteryLow ? SystemState.danger : SystemState.ink
                         font.pixelSize: 20
                         font.bold: true
                     }
                 }
+
                 Text {
-                    anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 2
-                    text: "长期监测 · " + VehicleState.batteryHistory.length + "点 · " + VehicleState.batteryHistoryMin.toFixed(1) + "–" + VehicleState.batteryHistoryMax.toFixed(1) + " V"
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: VehicleState.batteryHistory.length + "点 · " + VehicleState.batteryHistoryMin.toFixed(1) + "–" + VehicleState.batteryHistoryMax.toFixed(1) + " V"
                     color: SystemState.secondary
                     font.pixelSize: 12
+                }
+
+                Item { width: Math.max(12, battHeader.width - 470); height: 1 }
+
+                Row {
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 6
+                    Repeater {
+                        model: [1, 7, 20]
+                        delegate: IosPressable {
+                            required property int modelData
+                            width: 48
+                            height: 28
+                            onClicked: VehicleState.batteryRangeDays = modelData
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 8
+                                color: VehicleState.batteryRangeDays === modelData ? SystemState.selected : SystemState.fill
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: modelData + "天"
+                                    color: VehicleState.batteryRangeDays === modelData ? SystemState.tint : SystemState.ink
+                                    font.pixelSize: 12
+                                    font.bold: VehicleState.batteryRangeDays === modelData
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -457,60 +562,150 @@ Item {
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 anchors.margins: 12
-                height: parent.height - 52
+                height: parent.height - 64
 
                 property var points: VehicleState.batteryHistory
+                property var times: VehicleState.batteryHistoryTimes
                 property real vmin: VehicleState.batteryHistoryMin
                 property real vmax: VehicleState.batteryHistoryMax
-                property color line: VehicleState.batteryLow ? "#FF3B30" : "#007AFF"
+                property int rangeDays: VehicleState.batteryRangeDays
+                property color axis: SystemState.secondary
+                property color grid: SystemState.separator
+                property color plot: VehicleState.batteryLow ? SystemState.danger : SystemState.tint
 
                 onPointsChanged: requestPaint()
+                onTimesChanged: requestPaint()
                 onVminChanged: requestPaint()
                 onVmaxChanged: requestPaint()
+                onRangeDaysChanged: requestPaint()
                 onWidthChanged: requestPaint()
                 onHeightChanged: requestPaint()
-                onLineChanged: requestPaint()
+                onPlotChanged: requestPaint()
+                onAxisChanged: requestPaint()
+                onGridChanged: requestPaint()
+
+                function fmtLabel(ms, days) {
+                    var d = new Date(ms)
+                    var mo = d.getMonth() + 1
+                    var day = d.getDate()
+                    var hh = d.getHours()
+                    var mm = d.getMinutes()
+                    function z(n) { return n < 10 ? "0" + n : "" + n }
+                    if (days <= 1)
+                        return z(hh) + ":" + z(mm)
+                    return mo + "-" + day
+                }
 
                 onPaint: {
                     var ctx = getContext("2d")
                     ctx.reset()
-                    var w = width
-                    var h = height
-                    if (w < 2 || h < 2)
+                    var W = width
+                    var H = height
+                    if (W < 40 || H < 40)
                         return
 
-                    var lo = Math.min(vmin, 11.5)
-                    var hi = Math.max(vmax, 14.5)
-                    if (hi - lo < 0.4) {
-                        lo -= 0.2
-                        hi += 0.2
-                    }
+                    var padL = 36
+                    var padR = 10
+                    var padT = 6
+                    var padB = 22
+                    var plotW = W - padL - padR
+                    var plotH = H - padT - padB
 
-                    function yAt(v) {
-                        return h - ((v - lo) / (hi - lo)) * h
+                    var lo = Math.floor(Math.min(vmin, 11.5) * 2) / 2
+                    var hi = Math.ceil(Math.max(vmax, 14.5) * 2) / 2
+                    if (hi - lo < 1.0) {
+                        lo -= 0.5
+                        hi += 0.5
                     }
 
                     var n = points.length
-                    if (n < 2)
+                    var t0 = 0
+                    var t1 = 1
+                    if (n >= 1 && times.length === n) {
+                        t0 = times[0]
+                        t1 = times[n - 1]
+                        if (t1 <= t0)
+                            t1 = t0 + 1
+                    }
+                    var gapMs = 2 * 3600 * 1000
+
+                    function yAt(v) {
+                        return padT + plotH - ((v - lo) / (hi - lo)) * plotH
+                    }
+                    function xAtTime(ms) {
+                        return padL + ((ms - t0) / (t1 - t0)) * plotW
+                    }
+
+                    ctx.strokeStyle = grid
+                    ctx.fillStyle = axis
+                    ctx.lineWidth = 1
+                    ctx.font = "11px sans-serif"
+                    ctx.textAlign = "right"
+                    ctx.textBaseline = "middle"
+
+                    for (var v = lo; v <= hi + 0.001; v += 0.5) {
+                        var y = yAt(v)
+                        ctx.beginPath()
+                        ctx.moveTo(padL, y)
+                        ctx.lineTo(padL + plotW, y)
+                        ctx.stroke()
+                        ctx.fillText(v.toFixed(1), padL - 6, y)
+                    }
+
+                    ctx.textAlign = "left"
+                    ctx.textBaseline = "top"
+                    ctx.fillText("V", 4, padT)
+
+                    ctx.strokeStyle = axis
+                    ctx.beginPath()
+                    ctx.moveTo(padL, padT + plotH)
+                    ctx.lineTo(padL + plotW, padT + plotH)
+                    ctx.stroke()
+                    ctx.beginPath()
+                    ctx.moveTo(padL, padT)
+                    ctx.lineTo(padL, padT + plotH)
+                    ctx.stroke()
+
+                    ctx.fillStyle = axis
+                    ctx.textBaseline = "top"
+                    if (n >= 1 && times.length === n) {
+                        var labelTs = n === 1 ? [t0] : [t0, (t0 + t1) / 2, t1]
+                        for (var li = 0; li < labelTs.length; ++li) {
+                            var lx = xAtTime(labelTs[li])
+                            ctx.textAlign = li === 0 ? "left" : (li === labelTs.length - 1 ? "right" : "center")
+                            ctx.fillText(fmtLabel(labelTs[li], rangeDays), lx, padT + plotH + 4)
+                        }
+                    }
+
+                    if (n < 1 || times.length !== n)
                         return
 
-                    ctx.strokeStyle = line
+                    ctx.strokeStyle = plot
                     ctx.lineWidth = 2
                     ctx.lineJoin = "round"
                     ctx.beginPath()
+                    var drawing = false
                     for (var i = 0; i < n; ++i) {
-                        var x = i * (w - 1) / (n - 1)
-                        var y = yAt(points[i])
-                        if (i === 0)
-                            ctx.moveTo(x, y)
-                        else
-                            ctx.lineTo(x, y)
+                        var x = xAtTime(times[i])
+                        var py = yAt(points[i])
+                        if (i > 0 && (times[i] - times[i - 1]) > gapMs) {
+                            ctx.stroke()
+                            ctx.beginPath()
+                            drawing = false
+                        }
+                        if (!drawing) {
+                            ctx.moveTo(x, py)
+                            drawing = true
+                        } else {
+                            ctx.lineTo(x, py)
+                        }
                     }
-                    ctx.stroke()
+                    if (drawing)
+                        ctx.stroke()
 
-                    ctx.fillStyle = line
+                    ctx.fillStyle = plot
                     ctx.beginPath()
-                    ctx.arc(w - 1, yAt(points[n - 1]), 3.5, 0, Math.PI * 2)
+                    ctx.arc(xAtTime(times[n - 1]), yAt(points[n - 1]), 3.5, 0, Math.PI * 2)
                     ctx.fill()
                 }
             }

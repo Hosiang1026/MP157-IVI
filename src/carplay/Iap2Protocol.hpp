@@ -29,7 +29,6 @@ constexpr quint16 kWirelessCarPlayUpdate = 0x4e0d;
 constexpr quint16 kDeviceTransportIdentifier = 0x4e0e;
 
 constexpr quint16 kStartNowPlayingUpdates = 0x5000;
-constexpr quint16 kStartRouteGuidanceUpdates = 0x5200;
 constexpr quint16 kStartPowerUpdates = 0xae00;
 constexpr quint16 kStartCommunicationsUpdates = 0x4157;
 constexpr quint16 kStartCallStateUpdates = 0x4154;

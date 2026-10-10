@@ -9,6 +9,17 @@
 #include <QUrl>
 #include <QUuid>
 
+#ifdef Q_OS_WIN
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#endif
+
 namespace {
 
 const quint16 kSsdpPort = 1900;
@@ -92,20 +103,21 @@ void DlnaRenderer::start()
     }
     m_httpPort = m_http.serverPort();
 
-    if (!m_ssdp.bind(QHostAddress::AnyIPv4, kSsdpPort,
-                     QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
+    if (!setupSsdpSocket()) {
         m_http.close();
         setStatus(QStringLiteral("SSDP 失败"));
-        setDetail(m_ssdp.errorString());
+        setDetail(m_ssdp.errorString().isEmpty() ? QStringLiteral("无法绑定 1900/组播")
+                                                 : m_ssdp.errorString());
         return;
     }
-    m_ssdp.joinMulticastGroup(QHostAddress(QLatin1String(kSsdpGroup)));
 
     sendSsdpNotify(QStringLiteral("ssdp:alive"));
     m_announce.start();
     setRunning(true);
     setStatus(QStringLiteral("等待投屏"));
-    setDetail(QStringLiteral("DLNA 名 MP157-DLNA · %1:%2").arg(m_hostIp).arg(m_httpPort));
+    setDetail(QStringLiteral("在手机投屏/DLNA 里选「MP157-IVI」· %1:%2")
+                  .arg(m_hostIp)
+                  .arg(m_httpPort));
 }
 
 void DlnaRenderer::stop()
@@ -216,8 +228,10 @@ void DlnaRenderer::onSsdpReadyRead()
         }
         const QByteArray stLower = st.toLower();
         if (stLower == "ssdp:all" || stLower == "upnp:rootdevice"
+            || stLower == m_uuid.toLower().toLatin1()
             || stLower.contains("mediarenderer") || stLower.contains("avtransport")
-            || stLower.contains("connectionmanager") || stLower.contains("renderingcontrol")) {
+            || stLower.contains("connectionmanager") || stLower.contains("renderingcontrol")
+            || stLower.contains("basic:1.0")) {
             replySsdpSearch(addr, port, st);
         }
     }
@@ -261,18 +275,96 @@ void DlnaRenderer::setTransport(const QString &state)
     emit mediaChanged();
 }
 
-QString DlnaRenderer::primaryIpv4() const
+static bool isVirtualIface(const QString &name)
 {
+    const QString n = name.toLower();
+    return n.contains(QStringLiteral("virtual")) || n.contains(QStringLiteral("vmware"))
+        || n.contains(QStringLiteral("vbox")) || n.contains(QStringLiteral("hyper-v"))
+        || n.contains(QStringLiteral("docker")) || n.contains(QStringLiteral("wsl"))
+        || n.contains(QStringLiteral("vethernet")) || n.contains(QStringLiteral("loopback"))
+        || n.contains(QStringLiteral("vpn")) || n.contains(QStringLiteral("tap"))
+        || n.contains(QStringLiteral("tun")) || n.contains(QStringLiteral("zerotier"));
+}
+
+static bool isWlanIface(const QString &name)
+{
+    const QString n = name.toLower();
+    return n.contains(QStringLiteral("wlan")) || n.contains(QStringLiteral("wi-fi"))
+        || n.contains(QStringLiteral("wifi")) || n.contains(QStringLiteral("无线"));
+}
+
+QNetworkInterface DlnaRenderer::primaryIface() const
+{
+    QNetworkInterface fallback;
     for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces()) {
         if (!(iface.flags() & QNetworkInterface::IsUp)
-            || (iface.flags() & QNetworkInterface::IsLoopBack))
+            || (iface.flags() & QNetworkInterface::IsLoopBack)
+            || isVirtualIface(iface.humanReadableName()) || isVirtualIface(iface.name()))
             continue;
+        bool hasV4 = false;
         for (const QNetworkAddressEntry &entry : iface.addressEntries()) {
-            if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol)
-                return entry.ip().toString();
+            if (entry.ip().protocol() != QAbstractSocket::IPv4Protocol || entry.ip().isNull())
+                continue;
+            const quint32 v = entry.ip().toIPv4Address();
+            if ((v & 0xffff0000u) == 0xa9fe0000u) // 169.254/16
+                continue;
+            hasV4 = true;
+            break;
         }
+        if (!hasV4)
+            continue;
+        if (isWlanIface(iface.humanReadableName()) || isWlanIface(iface.name()))
+            return iface;
+        if (!fallback.isValid())
+            fallback = iface;
+    }
+    return fallback;
+}
+
+QString DlnaRenderer::primaryIpv4() const
+{
+    const QNetworkInterface iface = primaryIface();
+    if (!iface.isValid())
+        return {};
+    for (const QNetworkAddressEntry &entry : iface.addressEntries()) {
+        if (entry.ip().protocol() != QAbstractSocket::IPv4Protocol || entry.ip().isNull())
+            continue;
+        const quint32 v = entry.ip().toIPv4Address();
+        if ((v & 0xffff0000u) == 0xa9fe0000u)
+            continue;
+        return entry.ip().toString();
     }
     return {};
+}
+
+bool DlnaRenderer::setupSsdpSocket()
+{
+    m_ssdp.close();
+    if (!m_ssdp.bind(QHostAddress::AnyIPv4, kSsdpPort,
+                     QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint))
+        return false;
+
+    const QNetworkInterface iface = primaryIface();
+    const QHostAddress group = QHostAddress(QString::fromLatin1(kSsdpGroup));
+    if (iface.isValid()) {
+        m_ssdp.setMulticastInterface(iface);
+        if (!m_ssdp.joinMulticastGroup(group, iface))
+            m_ssdp.joinMulticastGroup(group);
+    } else if (!m_ssdp.joinMulticastGroup(group)) {
+        return false;
+    }
+
+    const qintptr fd = m_ssdp.socketDescriptor();
+    if (fd != -1) {
+        const int ttl = 4;
+#ifdef Q_OS_WIN
+        setsockopt(SOCKET(fd), IPPROTO_IP, IP_MULTICAST_TTL,
+                   reinterpret_cast<const char *>(&ttl), sizeof(ttl));
+#else
+        setsockopt(int(fd), IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
+#endif
+    }
+    return true;
 }
 
 void DlnaRenderer::sendSsdpNotify(const QString &nts)
@@ -286,6 +378,7 @@ void DlnaRenderer::sendSsdpNotify(const QString &nts)
         QStringLiteral("urn:schemas-upnp-org:service:ConnectionManager:1"),
         QStringLiteral("urn:schemas-upnp-org:service:RenderingControl:1"),
     };
+    const QHostAddress group = QHostAddress(QString::fromLatin1(kSsdpGroup));
     for (const QString &nt : ntsList) {
         QByteArray pkt;
         pkt += "NOTIFY * HTTP/1.1\r\n";
@@ -294,32 +387,72 @@ void DlnaRenderer::sendSsdpNotify(const QString &nts)
         pkt += "LOCATION: " + loc.toUtf8() + "\r\n";
         pkt += "NT: " + nt.toUtf8() + "\r\n";
         pkt += "NTS: " + nts.toUtf8() + "\r\n";
-        pkt += "SERVER: MP157-IVI/1.0 UPnP/1.0 DLNA/1.0\r\n";
+        pkt += "SERVER: MP157-IVI/1.0 UPnP/1.0 DLNADOC/1.50\r\n";
         pkt += "USN: " + m_uuid.toUtf8();
         if (nt != m_uuid)
             pkt += "::" + nt.toUtf8();
-        pkt += "\r\n\r\n";
-        m_ssdp.writeDatagram(pkt, QHostAddress(QLatin1String(kSsdpGroup)), kSsdpPort);
+        pkt += "\r\n";
+        pkt += "BOOTID.UPNP.ORG: 1\r\n";
+        pkt += "CONFIGID.UPNP.ORG: 1\r\n\r\n";
+        m_ssdp.writeDatagram(pkt, group, kSsdpPort);
     }
 }
 
-void DlnaRenderer::replySsdpSearch(const QHostAddress &addr, quint16 port, const QByteArray &st)
+void DlnaRenderer::sendSsdpResponse(const QHostAddress &addr, quint16 port, const QByteArray &st)
 {
     const QString loc = QStringLiteral("http://%1:%2/device.xml").arg(m_hostIp).arg(m_httpPort);
-    const QByteArray usnSt = (st.toLower() == "ssdp:all" || st.toLower() == "upnp:rootdevice")
-        ? QByteArrayLiteral("upnp:rootdevice")
-        : st;
+    QByteArray usn = m_uuid.toUtf8();
+    if (st.toLower() != m_uuid.toLatin1().toLower()) {
+        usn += "::";
+        usn += st;
+    }
     QByteArray pkt;
     pkt += "HTTP/1.1 200 OK\r\n";
     pkt += "CACHE-CONTROL: max-age=1800\r\n";
     pkt += "DATE: " + QDateTime::currentDateTimeUtc().toString(Qt::RFC2822Date).toUtf8() + "\r\n";
     pkt += "EXT:\r\n";
     pkt += "LOCATION: " + loc.toUtf8() + "\r\n";
-    pkt += "SERVER: MP157-IVI/1.0 UPnP/1.0 DLNA/1.0\r\n";
+    pkt += "SERVER: MP157-IVI/1.0 UPnP/1.0 DLNADOC/1.50\r\n";
     pkt += "ST: " + st + "\r\n";
-    pkt += "USN: " + m_uuid.toUtf8() + "::" + usnSt + "\r\n";
-    pkt += "\r\n";
+    pkt += "USN: " + usn + "\r\n";
+    pkt += "BOOTID.UPNP.ORG: 1\r\n";
+    pkt += "CONFIGID.UPNP.ORG: 1\r\n\r\n";
     m_ssdp.writeDatagram(pkt, addr, port);
+}
+
+void DlnaRenderer::replySsdpSearch(const QHostAddress &addr, quint16 port, const QByteArray &st)
+{
+    const QByteArray stLower = st.toLower();
+    const QList<QByteArray> all = {
+        QByteArrayLiteral("upnp:rootdevice"),
+        QByteArrayLiteral("urn:schemas-upnp-org:device:MediaRenderer:1"),
+        m_uuid.toUtf8(),
+        QByteArrayLiteral("urn:schemas-upnp-org:service:AVTransport:1"),
+        QByteArrayLiteral("urn:schemas-upnp-org:service:ConnectionManager:1"),
+        QByteArrayLiteral("urn:schemas-upnp-org:service:RenderingControl:1"),
+    };
+
+    if (stLower == "ssdp:all" || stLower.contains("basic:1.0")) {
+        for (const QByteArray &one : all)
+            sendSsdpResponse(addr, port, one);
+        return;
+    }
+    for (const QByteArray &one : all) {
+        if (stLower == QByteArray(one).toLower()) {
+            sendSsdpResponse(addr, port, one);
+            return;
+        }
+    }
+    if (stLower.contains("mediarenderer"))
+        sendSsdpResponse(addr, port, QByteArrayLiteral("urn:schemas-upnp-org:device:MediaRenderer:1"));
+    else if (stLower.contains("avtransport"))
+        sendSsdpResponse(addr, port, QByteArrayLiteral("urn:schemas-upnp-org:service:AVTransport:1"));
+    else if (stLower.contains("connectionmanager"))
+        sendSsdpResponse(addr, port,
+                         QByteArrayLiteral("urn:schemas-upnp-org:service:ConnectionManager:1"));
+    else if (stLower.contains("renderingcontrol"))
+        sendSsdpResponse(addr, port,
+                         QByteArrayLiteral("urn:schemas-upnp-org:service:RenderingControl:1"));
 }
 
 void DlnaRenderer::handleHttp(QTcpSocket *sock, const QByteArray &req)
@@ -378,14 +511,17 @@ QByteArray DlnaRenderer::deviceDescription() const
 {
     const QString xml = QStringLiteral(
         "<?xml version=\"1.0\"?>"
-        "<root xmlns=\"urn:schemas-upnp-org:device-1-0\">"
+        "<root xmlns=\"urn:schemas-upnp-org:device-1-0\" "
+        "xmlns:dlna=\"urn:schemas-dlna-org:device-1-0\">"
         "<specVersion><major>1</major><minor>0</minor></specVersion>"
         "<device>"
         "<deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>"
-        "<friendlyName>MP157-DLNA</friendlyName>"
+        "<friendlyName>MP157-IVI</friendlyName>"
         "<manufacturer>MP157</manufacturer>"
         "<modelName>MP157-IVI</modelName>"
+        "<modelNumber>1</modelNumber>"
         "<UDN>%1</UDN>"
+        "<dlna:X_DLNADOC>DMR-1.50</dlna:X_DLNADOC>"
         "<serviceList>"
         "<service>"
         "<serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>"

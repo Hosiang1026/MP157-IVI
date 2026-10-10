@@ -12,6 +12,15 @@ qt_add_executable(ivi-shell
     CameraVideoItem.cpp
 )
 
+set_source_files_properties(
+    ${CMAKE_SOURCE_DIR}/assets/carplay/skoda-oem-icon.png
+    PROPERTIES QT_RESOURCE_ALIAS "skoda-oem-icon.png"
+)
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/skoda-boot-icon.png
+    PROPERTIES QT_RESOURCE_ALIAS "skoda-boot-icon.png"
+)
+
 qt_add_qml_module(ivi-shell
     URI IviShell
     VERSION 1.0
@@ -24,11 +33,25 @@ qt_add_qml_module(ivi-shell
         qml/AppStage.qml
         qml/WeatherFx.qml
         qml/GlassPanel.qml
+        qml/IosIcon.qml
+        qml/IosSearchField.qml
+        qml/IosSegmented.qml
+        qml/IosPressable.qml
+        qml/IosEmptyState.qml
+        qml/IosSpinner.qml
+        qml/IosToggle.qml
+        qml/IosGroupedCard.qml
+        qml/BootSplash.qml
+        qml/LockScreen.qml
+        qml/VirtualKeyboard.qml
+        qml/pinyin.js
     RESOURCES
         weather.frag.qsb
+        ${CMAKE_SOURCE_DIR}/assets/carplay/skoda-oem-icon.png
+        skoda-boot-icon.png
 )
 
-target_link_libraries(ivi-shell PRIVATE Qt6::Quick Qt6::QuickControls2 ivi-core ivi-carplay)
+target_link_libraries(ivi-shell PRIVATE Qt6::Quick Qt6::QuickControls2 ivi-core ivi-carplay ivi-androidauto)
 
 add_custom_command(TARGET ivi-shell POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:ivi-shell>/apps"

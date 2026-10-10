@@ -31,7 +31,6 @@ static QList<quint16> wirelessSentMessages()
     return {
         0xaa01, 0xaa03,
         0x5000, 0x5002,
-        0x5200, 0x5203,
         0xae00, 0xae02,
         0x4157, 0x4159,
         0x4154, 0x4156,
@@ -46,7 +45,6 @@ static QList<quint16> wirelessReceivedMessages()
         0xaa00, 0xaa02, 0xaa04, 0xaa05,
         0xea00, 0xea01,
         0x5001,
-        0x5201, 0x5202,
         0xae01,
         0x4158, 0x4155,
         0x4300,
@@ -90,13 +88,6 @@ QByteArray buildIdentificationWireless(const WirelessIdentity &id)
                 .addU16(3, 1)
                 .addVoid(4)
                 .addVoid(5);
-        })
-        .addGroup(30, [](Iap2Body &g) {
-            g.addU16(0, 42)
-                .addString(1, QStringLiteral("RouteGuidance"))
-                .addU16(2, 64)
-                .addU16(4, 64)
-                .addU16(6, 8);
         });
     return frame(kIdentificationInformation, body);
 }
@@ -178,11 +169,6 @@ QList<QByteArray> buildMinimalSubscriptions()
                     g.addVoid(id);
             });
         out.append(frame(kStartNowPlayingUpdates, body));
-    }
-    {
-        Iap2Body body;
-        body.addU16(0, 42).addVoid(1).addVoid(2);
-        out.append(frame(kStartRouteGuidanceUpdates, body));
     }
     {
         Iap2Body body;

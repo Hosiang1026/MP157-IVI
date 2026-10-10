@@ -412,14 +412,23 @@ void CameraService::release(const QString &holder)
     emit stateChanged();
 }
 
+void CameraService::dismissReverse()
+{
+    m_reverseDismissed = true;
+    release(QStringLiteral("reverse"));
+}
+
 void CameraService::onVehicleChanged()
 {
     if (!m_vehicle)
         return;
-    if (m_vehicle->gear() == QStringLiteral("R"))
-        acquire(QStringLiteral("reverse"));
-    else
+    if (m_vehicle->gear() == QStringLiteral("R")) {
+        if (!m_reverseDismissed)
+            acquire(QStringLiteral("reverse"));
+    } else {
+        m_reverseDismissed = false;
         release(QStringLiteral("reverse"));
+    }
 }
 
 void CameraService::ensureRunning()

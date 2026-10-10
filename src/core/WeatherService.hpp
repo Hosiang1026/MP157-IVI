@@ -7,6 +7,7 @@
 #include <QVariantList>
 #include <QVector>
 
+class GpsSource;
 class QNetworkAccessManager;
 
 class WeatherService : public QObject {
@@ -34,6 +35,7 @@ class WeatherService : public QObject {
     Q_PROPERTY(bool fromCache READ fromCache NOTIFY updated)
 public:
     explicit WeatherService(QObject *parent = nullptr);
+    void setGpsSource(GpsSource *gps);
 
     QString place() const;
     int temperature() const;
@@ -108,6 +110,8 @@ private:
     void updateFromHourly();
     void rebuildForecasts(int currentIndex);
     bool currentIsAuto() const;
+    void onGpsUpdated();
+    bool applyGpsFix();
     static void decodeCode(int code, bool day, QString *kind, QString *condition);
     static void resolveDrivingKind(const LiveHour &now,
                                    double precipPrev2h,
@@ -134,8 +138,11 @@ private:
                                  double frac);
 
     QNetworkAccessManager *m_net = nullptr;
+    GpsSource *m_gps = nullptr;
     QTimer m_timer;
     QTimer m_liveTimer;
+    double m_weatherLat = 0;
+    double m_weatherLon = 0;
     QVector<QDateTime> m_hourlyTime;
     QVector<int> m_hourlyCodes;
     QVector<int> m_hourlyTemps;

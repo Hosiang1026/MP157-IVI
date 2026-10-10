@@ -1,0 +1,8 @@
+{
+  "name": "文件",
+  "entry": "Main.qml",
+  "color": "#5AC8FA",
+  "dock": false,
+  "builtin": true,
+  "order": 3
+}

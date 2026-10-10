@@ -9,6 +9,8 @@
 
 namespace {
 
+constexpr int kPollSliceMs = 200;
+
 void progress(const Iap2WirelessBootstrap::ProgressFn &fn, const QString &msg)
 {
     if (fn)
@@ -60,28 +62,46 @@ Iap2WirelessBootstrap::Result Iap2WirelessBootstrap::run(
         return result;
     };
 
+    auto cancelled = [&]() -> bool {
+        return keepAlive && !keepAlive();
+    };
+
+    auto waitSlice = [&]() -> int {
+        const int left = remainingMs(deadline);
+        if (left == 0)
+            return 0;
+        return qMin(kPollSliceMs, left);
+    };
+
     if (!mfi.isReady())
         return fail(Status::Failed, mfi.errorString().isEmpty()
                                         ? QStringLiteral("MFi not ready")
                                         : mfi.errorString());
 
     progress(onProgress, QStringLiteral("await ready"));
-    if (!session.awaitReady(remainingMs(deadline))) {
+    while (!session.isReady()) {
         if (session.isDead())
             return fail(Status::Dead, session.deadReason());
-        return fail(Status::TimedOut, QStringLiteral("awaitReady timeout"));
+        if (cancelled())
+            return fail(Status::Failed, QStringLiteral("cancelled"));
+        const int slice = waitSlice();
+        if (slice == 0)
+            return fail(Status::TimedOut, QStringLiteral("awaitReady timeout"));
+        session.awaitReady(slice);
     }
 
     progress(onProgress, QStringLiteral("identification"));
     while (true) {
-        const int left = remainingMs(deadline);
-        if (left == 0)
+        if (cancelled())
+            return fail(Status::Failed, QStringLiteral("cancelled"));
+        const int slice = waitSlice();
+        if (slice == 0)
             return fail(Status::TimedOut, QStringLiteral("identification timeout"));
-        const QByteArray raw = session.recvControl(left);
+        const QByteArray raw = session.recvControl(slice);
         if (raw.isEmpty()) {
             if (session.isDead())
                 return fail(Status::Dead, session.deadReason());
-            return fail(Status::TimedOut, QStringLiteral("identification recv timeout"));
+            continue;
         }
         const quint16 mid = messageIdOf(raw);
         if (mid == Iap2Protocol::kStartIdentification) {
@@ -102,14 +122,16 @@ Iap2WirelessBootstrap::Result Iap2WirelessBootstrap::run(
     progress(onProgress, QStringLiteral("mfi"));
     const QByteArray certFrame = Iap2Protocol::buildAuthCertificate(mfi.certificate());
     while (true) {
-        const int left = remainingMs(deadline);
-        if (left == 0)
+        if (cancelled())
+            return fail(Status::Failed, QStringLiteral("cancelled"));
+        const int slice = waitSlice();
+        if (slice == 0)
             return fail(Status::TimedOut, QStringLiteral("mfi timeout"));
-        const QByteArray raw = session.recvControl(left);
+        const QByteArray raw = session.recvControl(slice);
         if (raw.isEmpty()) {
             if (session.isDead())
                 return fail(Status::Dead, session.deadReason());
-            return fail(Status::TimedOut, QStringLiteral("mfi recv timeout"));
+            continue;
         }
         const quint16 mid = messageIdOf(raw);
         if (mid == Iap2Protocol::kRequestCertificate) {
@@ -184,11 +206,16 @@ Iap2WirelessBootstrap::Result Iap2WirelessBootstrap::run(
     };
 
     while (true) {
-        int left = remainingMs(deadline);
-        if (left == 0) {
+        if (cancelled()) {
+            if (result.status == Status::Ok)
+                return result;
+            return fail(Status::Failed, QStringLiteral("cancelled"));
+        }
+        int slice = waitSlice();
+        if (slice == 0) {
             if (result.status == Status::Ok) {
                 if (keepAlive && keepAlive()) {
-                    left = 1000;
+                    slice = kPollSliceMs;
                 } else {
                     progress(onProgress, QStringLiteral("control keep-alive end"));
                     return result;
@@ -199,21 +226,14 @@ Iap2WirelessBootstrap::Result Iap2WirelessBootstrap::run(
                 return result;
             }
         }
-        const QByteArray raw = session.recvControl(left);
+        const QByteArray raw = session.recvControl(slice);
         if (raw.isEmpty()) {
             if (session.isDead()) {
                 if (result.status == Status::Ok)
                     return result;
                 return fail(Status::Dead, session.deadReason());
             }
-            if (result.status == Status::Ok) {
-                if (keepAlive && keepAlive())
-                    continue;
-                return result;
-            }
-            result.status = Status::TimedOut;
-            result.error = QStringLiteral("control recv timeout");
-            return result;
+            continue;
         }
         const quint16 mid = messageIdOf(raw);
         if (mid == Iap2Protocol::kRequestAccessoryWifiConfiguration) {

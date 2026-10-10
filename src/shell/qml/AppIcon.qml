@@ -1,4 +1,5 @@
 import QtQuick
+import Ivi.Services 1.0
 
 Item {
     id: root
@@ -15,7 +16,7 @@ Item {
     signal holdMove(real sceneX, real sceneY)
     signal holdDrop(real sceneX, real sceneY)
 
-    readonly property bool drawn: ["music", "phone", "vehicle", "settings", "store", "radio", "video", "map", "carplay", "weather", "airplay", "dlna", "dashcam"].indexOf(appId) >= 0
+    readonly property bool drawn: ["music", "phone", "vehicle", "settings", "store", "radio", "video", "map", "carplay", "androidauto", "weather", "airplay", "dlna", "dashcam", "files"].indexOf(appId) >= 0
     readonly property real squircle: 0.2237
 
     opacity: dimmed ? 0.32 : 1
@@ -37,6 +38,29 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
 
             Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: Math.max(4, Math.round(root.iconSize * 0.05))
+                width: root.iconSize
+                height: root.iconSize
+                radius: root.iconSize * root.squircle
+                color: "#000000"
+                opacity: 0.22
+                scale: 0.97
+                z: -1
+            }
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: Math.max(2, Math.round(root.iconSize * 0.025))
+                width: root.iconSize
+                height: root.iconSize
+                radius: root.iconSize * root.squircle
+                color: "#000000"
+                opacity: 0.12
+                scale: 0.99
+                z: -1
+            }
+
+            Rectangle {
                 id: tile
                 width: root.iconSize
                 height: root.iconSize
@@ -53,12 +77,12 @@ Item {
                 Item {
                     id: glyphHost
                     anchors.fill: parent
-                    anchors.margins: parent.width * 0.18
+                    anchors.margins: parent.width * 0.10
 
                     Image {
                         anchors.centerIn: parent
-                        width: parent.width * 0.92
-                        height: parent.height * 0.92
+                        width: parent.width
+                        height: parent.height
                         source: root.iconSource
                         visible: root.iconSource !== "" && !root.drawn
                         fillMode: Image.PreserveAspectFit
@@ -69,7 +93,8 @@ Item {
                     AppGlyph {
                         anchors.fill: parent
                         appId: root.appId
-                        visible: root.drawn && root.iconSource === ""
+                        visible: root.drawn
+                        opacity: root.iconSource === "" ? 1 : 0
                     }
 
                     Text {
@@ -77,7 +102,7 @@ Item {
                         visible: !root.drawn && root.iconSource === ""
                         text: root.label.length > 0 ? root.label.charAt(0) : ""
                         color: "#FFFFFF"
-                        font.pixelSize: root.iconSize * 0.38
+                        font.pixelSize: root.iconSize * 0.46
                         font.weight: Font.DemiBold
                     }
                 }
@@ -119,7 +144,7 @@ Item {
             visible: root.showLabel
             height: root.showLabel ? implicitHeight : 0
             text: root.label
-            color: "#F2FFFFFF"
+            color: WallpaperStore.darkBackdrop ? "#F5FFFFFF" : "#E6000000"
             font.pixelSize: root.labelSize
             font.weight: Font.Medium
             font.letterSpacing: -0.15
@@ -127,7 +152,7 @@ Item {
             elide: Text.ElideRight
             anchors.horizontalCenter: parent.horizontalCenter
             style: Text.Raised
-            styleColor: "#66000000"
+            styleColor: WallpaperStore.darkBackdrop ? "#66000000" : "#66FFFFFF"
         }
     }
 

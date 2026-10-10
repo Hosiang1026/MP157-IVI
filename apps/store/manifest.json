@@ -1,8 +1,0 @@
-{
-  "name": "商店",
-  "entry": "Main.qml",
-  "color": "#FF9500",
-  "dock": false,
-  "builtin": true,
-  "order": 4
-}

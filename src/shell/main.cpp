@@ -5,6 +5,8 @@
 #include "CallSession.hpp"
 #include "CameraService.hpp"
 #include "CameraVideoItem.hpp"
+#include "AndroidAutoSession.hpp"
+#include "BluetoothMediaHub.hpp"
 #include "CarPlaySession.hpp"
 #include "CarPlayVideoItem.hpp"
 #include "DlnaRenderer.hpp"
@@ -12,6 +14,9 @@
 #include "MapTiles.hpp"
 #include "MediaSession.hpp"
 #include "NavSession.hpp"
+#include "FileBrowser.hpp"
+#include "GpsSource.hpp"
+#include "RadioSession.hpp"
 #include "SystemState.hpp"
 #include "UpdateService.hpp"
 #include "VehicleState.hpp"
@@ -19,14 +24,104 @@
 #include "WallpaperStore.hpp"
 #include "WeatherService.hpp"
 
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QFont>
 #include <QFontInfo>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickImageProvider>
 #include <QQuickStyle>
+#include <QTimer>
+
+#include <cstdio>
+#include <cstring>
+
+#if defined(Q_OS_LINUX)
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#endif
 
 namespace {
+
+QFile *g_logFile = nullptr;
+
+void iviMessageHandler(QtMsgType type, const QMessageLogContext &ctx, const QString &msg)
+{
+    const QByteArray line = qFormatLogMessage(type, ctx, msg).toUtf8() + '\n';
+    fwrite(line.constData(), 1, size_t(line.size()), stderr);
+    fflush(stderr);
+    if (g_logFile && g_logFile->isOpen()) {
+        g_logFile->write(line);
+        g_logFile->flush();
+    }
+}
+
+void setupLogging()
+{
+    qSetMessagePattern(QStringLiteral("%{time yyyy-MM-dd hh:mm:ss.zzz} [%{type}] %{message}"));
+    QString dir = qEnvironmentVariable("IVI_LOG_DIR");
+    if (dir.isEmpty())
+        dir = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("logs"));
+    QDir().mkpath(dir);
+    const QString path = QDir(dir).filePath(QStringLiteral("ivi-shell.log"));
+    const QFileInfo info(path);
+    if (info.exists() && info.size() > 5 * 1024 * 1024) {
+        QFile::remove(path + QStringLiteral(".1"));
+        QFile::rename(path, path + QStringLiteral(".1"));
+    }
+    g_logFile = new QFile(path);
+    if (g_logFile->open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
+        qInstallMessageHandler(iviMessageHandler);
+}
+
+#if defined(Q_OS_LINUX)
+bool systemdNotify(const char *state)
+{
+    const QByteArray path = qgetenv("NOTIFY_SOCKET");
+    if (path.isEmpty())
+        return false;
+
+    const int fd = ::socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (fd < 0)
+        return false;
+
+    sockaddr_un addr {};
+    addr.sun_family = AF_UNIX;
+    socklen_t addrLen = 0;
+    if (path.startsWith('@')) {
+        addr.sun_path[0] = '\0';
+        const int n = qMin(path.size() - 1, int(sizeof(addr.sun_path) - 2));
+        memcpy(addr.sun_path + 1, path.constData() + 1, size_t(n));
+        addrLen = socklen_t(offsetof(sockaddr_un, sun_path) + 1 + n);
+    } else {
+        const int n = qMin(path.size(), int(sizeof(addr.sun_path) - 1));
+        memcpy(addr.sun_path, path.constData(), size_t(n));
+        addr.sun_path[n] = '\0';
+        addrLen = socklen_t(offsetof(sockaddr_un, sun_path) + n + 1);
+    }
+
+    const size_t len = strlen(state);
+    const bool ok = ::sendto(fd, state, len, 0, reinterpret_cast<sockaddr *>(&addr), addrLen) >= 0;
+    ::close(fd);
+    return ok;
+}
+
+void setupSystemdWatchdog(QObject *parent)
+{
+    systemdNotify("READY=1\n");
+    const qint64 usec = qEnvironmentVariableIntValue("WATCHDOG_USEC");
+    if (usec <= 0)
+        return;
+    auto *timer = new QTimer(parent);
+    QObject::connect(timer, &QTimer::timeout, parent, [] { systemdNotify("WATCHDOG=1\n"); });
+    timer->start(qMax(1000, int(usec / 2000)));
+}
+#endif
+
 
 class CarPlayFrameProvider final : public QQuickImageProvider {
 public:
@@ -88,6 +183,9 @@ int main(int argc, char *argv[])
     prepareLinuxDisplayEnv();
 #endif
     QGuiApplication app(argc, argv);
+    QCoreApplication::setApplicationName(QStringLiteral("ivi-shell"));
+    QCoreApplication::setOrganizationName(QStringLiteral("MP157"));
+    setupLogging();
 #ifdef Q_OS_WIN
     app.setFont(QFont(QStringLiteral("Microsoft YaHei UI")));
 #else
@@ -100,8 +198,6 @@ int main(int argc, char *argv[])
         app.setFont(font);
     }
 #endif
-    QCoreApplication::setApplicationName(QStringLiteral("ivi-shell"));
-    QCoreApplication::setOrganizationName(QStringLiteral("MP157"));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     SystemState system;
@@ -111,12 +207,38 @@ int main(int argc, char *argv[])
     VehicleState vehicle(&weather);
     CameraService camera(&vehicle);
     MediaSession media(&system, &audio);
+    BluetoothMediaHub btMedia;
+    QObject::connect(&btMedia, &BluetoothMediaHub::activeChanged, &media, [&] {
+        media.setBluetoothSource(btMedia.activeName(), !btMedia.activeAddress().isEmpty());
+    });
+    media.setBluetoothSource(btMedia.activeName(), !btMedia.activeAddress().isEmpty());
     NavSession nav;
     MapTiles mapTiles;
     CallSession call(&audio);
+    RadioSession radio(&audio, &media);
+    QObject::connect(&media, &MediaSession::playingChanged, &radio, [&media, &radio] {
+        if (media.playing() && radio.playing())
+            radio.stop();
+    });
+    FileBrowser files(&media);
+    GpsSource gps;
+    weather.setGpsSource(&gps);
     AppCatalog catalog;
     WallpaperStore wallpapers;
     CarPlaySession carPlay;
+    carPlay.setGpsSource(&gps);
+    carPlay.setMediaSession(&media);
+    carPlay.setNavSession(&nav);
+    carPlay.setCallSession(&call);
+    AndroidAutoSession androidAuto;
+    QObject::connect(&carPlay, &CarPlaySession::runningChanged, &androidAuto, [&] {
+        if (carPlay.running() && androidAuto.running())
+            androidAuto.stop();
+    });
+    QObject::connect(&androidAuto, &AndroidAutoSession::runningChanged, &carPlay, [&] {
+        if (androidAuto.running() && carPlay.running())
+            carPlay.stop();
+    });
     AirPlayMirrorSession airPlayMirror;
     DlnaRenderer dlna(&audio);
 
@@ -126,13 +248,18 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "VehicleState", &vehicle);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "CameraService", &camera);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "MediaSession", &media);
+    qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "BluetoothMediaHub", &btMedia);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "NavSession", &nav);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "MapTiles", &mapTiles);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "CallSession", &call);
+    qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "RadioSession", &radio);
+    qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "FileBrowser", &files);
+    qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "GpsSource", &gps);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "AppCatalog", &catalog);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "WallpaperStore", &wallpapers);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "Weather", &weather);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "CarPlaySession", &carPlay);
+    qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "AndroidAutoSession", &androidAuto);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "AirPlayMirror", &airPlayMirror);
     qmlRegisterSingletonInstance("Ivi.Services", 1, 0, "DlnaRenderer", &dlna);
     qmlRegisterType<VideoScreen>("Ivi.Services", 1, 0, "VideoScreen");
@@ -150,5 +277,8 @@ int main(int argc, char *argv[])
     engine.loadFromModule("IviShell", "Main");
     if (engine.rootObjects().isEmpty())
         return -1;
+#if defined(Q_OS_LINUX)
+    setupSystemdWatchdog(&app);
+#endif
     return app.exec();
 }

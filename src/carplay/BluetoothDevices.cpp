@@ -1,6 +1,10 @@
 #include "BluetoothDevices.hpp"
 
+#include <QProcess>
+#include <QRegularExpression>
 #include <QSet>
+#include <QThread>
+#include <QVariantMap>
 #include <algorithm>
 
 #ifdef Q_OS_WIN
@@ -79,6 +83,31 @@ bool lookupDevice(const QString &address, BLUETOOTH_DEVICE_INFO *info)
 } // namespace
 #endif
 
+#ifdef Q_OS_LINUX
+namespace {
+
+QString runBt(const QStringList &args, int timeoutMs = 8000)
+{
+    QProcess proc;
+    proc.setProcessChannelMode(QProcess::MergedChannels);
+    proc.start(QStringLiteral("bluetoothctl"), args);
+    if (!proc.waitForFinished(timeoutMs)) {
+        proc.kill();
+        proc.waitForFinished(1000);
+        return {};
+    }
+    return QString::fromUtf8(proc.readAll());
+}
+
+QString normalizeMac(QString value)
+{
+    value = value.trimmed().toUpper().replace(QLatin1Char('-'), QLatin1Char(':'));
+    return value;
+}
+
+} // namespace
+#endif
+
 namespace BluetoothDevices {
 
 QString localAdapterAddress()
@@ -104,6 +133,11 @@ QString localAdapterAddress()
     } while (BluetoothFindNextRadio(find, &radio));
     BluetoothFindRadioClose(find);
     return address;
+#elif defined(Q_OS_LINUX)
+    const QString out = runBt({QStringLiteral("show")});
+    const QRegularExpression re(QStringLiteral("Controller\\s+([0-9A-Fa-f:]{17})"));
+    const auto m = re.match(out);
+    return m.hasMatch() ? normalizeMac(m.captured(1)) : QString();
 #else
     return {};
 #endif
@@ -119,8 +153,8 @@ QVariantList listDevices()
     params.fReturnRemembered = TRUE;
     params.fReturnUnknown = TRUE;
     params.fReturnConnected = TRUE;
-    params.fIssueInquiry = TRUE;
-    params.cTimeoutMultiplier = 2;
+    params.fIssueInquiry = FALSE;
+    params.cTimeoutMultiplier = 1;
     params.hRadio = nullptr;
 
     BLUETOOTH_DEVICE_INFO info{};
@@ -157,6 +191,46 @@ QVariantList listDevices()
             return ma.value(QStringLiteral("connected")).toBool();
         return ma.value(QStringLiteral("name")).toString() < mb.value(QStringLiteral("name")).toString();
     });
+#elif defined(Q_OS_LINUX)
+    runBt({QStringLiteral("power"), QStringLiteral("on")});
+
+    QSet<QString> paired;
+    for (const QString &line : runBt({QStringLiteral("devices"), QStringLiteral("Paired")})
+                                   .split(QLatin1Char('\n'))) {
+        const QRegularExpression re(QStringLiteral("Device\\s+([0-9A-Fa-f:]{17})"));
+        const auto m = re.match(line);
+        if (m.hasMatch())
+            paired.insert(normalizeMac(m.captured(1)));
+    }
+
+    QSet<QString> seen;
+    for (const QString &line : runBt({QStringLiteral("devices")}).split(QLatin1Char('\n'))) {
+        const QRegularExpression re(QStringLiteral("Device\\s+([0-9A-Fa-f:]{17})\\s+(.*)"));
+        const auto m = re.match(line);
+        if (!m.hasMatch())
+            continue;
+        const QString address = normalizeMac(m.captured(1));
+        if (seen.contains(address))
+            continue;
+        seen.insert(address);
+        const QString info = runBt({QStringLiteral("info"), address});
+        QVariantMap item;
+        item.insert(QStringLiteral("name"), m.captured(2).trimmed());
+        item.insert(QStringLiteral("address"), address);
+        item.insert(QStringLiteral("paired"), paired.contains(address)
+                                                  || info.contains(QStringLiteral("Paired: yes")));
+        item.insert(QStringLiteral("connected"), info.contains(QStringLiteral("Connected: yes")));
+        out.append(item);
+    }
+    std::sort(out.begin(), out.end(), [](const QVariant &a, const QVariant &b) {
+        const auto ma = a.toMap();
+        const auto mb = b.toMap();
+        if (ma.value(QStringLiteral("paired")).toBool() != mb.value(QStringLiteral("paired")).toBool())
+            return ma.value(QStringLiteral("paired")).toBool();
+        if (ma.value(QStringLiteral("connected")).toBool() != mb.value(QStringLiteral("connected")).toBool())
+            return ma.value(QStringLiteral("connected")).toBool();
+        return ma.value(QStringLiteral("name")).toString() < mb.value(QStringLiteral("name")).toString();
+    });
 #endif
     return out;
 }
@@ -169,6 +243,12 @@ bool isPaired(const QString &address)
     if (!lookupDevice(address, &info))
         return false;
     return info.fAuthenticated != FALSE;
+#elif defined(Q_OS_LINUX)
+    const QString mac = normalizeMac(address);
+    if (mac.size() != 17)
+        return false;
+    const QString info = runBt({QStringLiteral("info"), mac});
+    return info.contains(QStringLiteral("Paired: yes"));
 #else
     Q_UNUSED(address);
     return false;
@@ -217,10 +297,182 @@ bool authenticate(const QString &address, QString *error)
     if (error)
         *error = QStringLiteral("手机未确认配对码，配对未完成");
     return false;
+#elif defined(Q_OS_LINUX)
+    const QString mac = normalizeMac(address);
+    if (mac.size() != 17) {
+        if (error)
+            *error = QStringLiteral("蓝牙地址无效");
+        return false;
+    }
+    if (isPaired(mac))
+        return true;
+    runBt({QStringLiteral("power"), QStringLiteral("on")});
+    runBt({QStringLiteral("agent"), QStringLiteral("NoInputNoOutput")});
+    runBt({QStringLiteral("default-agent")});
+    runBt({QStringLiteral("pairable"), QStringLiteral("on")});
+    const QString out = runBt({QStringLiteral("pair"), mac}, 45000);
+    runBt({QStringLiteral("trust"), mac});
+    for (int i = 0; i < 25; ++i) {
+        if (isPaired(mac))
+            return true;
+        QThread::msleep(200);
+    }
+    if (error)
+        *error = out.trimmed().isEmpty() ? QStringLiteral("配对失败，请在手机上确认")
+                                         : out.trimmed();
+    return false;
 #else
     Q_UNUSED(address);
     if (error)
         *error = QStringLiteral("当前平台不支持蓝牙配对");
+    return false;
+#endif
+}
+
+bool connectDevice(const QString &address, QString *error)
+{
+#ifdef Q_OS_WIN
+    BLUETOOTH_DEVICE_INFO info{};
+    info.dwSize = sizeof(info);
+    if (!lookupDevice(address, &info)) {
+        if (error)
+            *error = QStringLiteral("未找到设备");
+        return false;
+    }
+    if (!info.fAuthenticated) {
+        if (!authenticate(address, error))
+            return false;
+        if (!lookupDevice(address, &info)) {
+            if (error)
+                *error = QStringLiteral("配对后未找到设备");
+            return false;
+        }
+    }
+    // A2DP Sink UUID on host side: phone streams audio to us.
+    GUID a2dp = {0x0000110b, 0x0000, 0x1000, {0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb}};
+    GUID avrcp = {0x0000110e, 0x0000, 0x1000, {0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb}};
+    BluetoothSetServiceState(nullptr, &info, &a2dp, BLUETOOTH_SERVICE_ENABLE);
+    BluetoothSetServiceState(nullptr, &info, &avrcp, BLUETOOTH_SERVICE_ENABLE);
+    return true;
+#elif defined(Q_OS_LINUX)
+    const QString mac = normalizeMac(address);
+    if (mac.size() != 17) {
+        if (error)
+            *error = QStringLiteral("蓝牙地址无效");
+        return false;
+    }
+    runBt({QStringLiteral("power"), QStringLiteral("on")});
+    const QString out = runBt({QStringLiteral("connect"), mac}, 30000);
+    for (int i = 0; i < 20; ++i) {
+        const QString info = runBt({QStringLiteral("info"), mac});
+        if (info.contains(QStringLiteral("Connected: yes")))
+            return true;
+        QThread::msleep(250);
+    }
+    if (error)
+        *error = out.trimmed().isEmpty() ? QStringLiteral("连接失败") : out.trimmed();
+    return false;
+#else
+    Q_UNUSED(address);
+    if (error)
+        *error = QStringLiteral("当前平台不支持");
+    return false;
+#endif
+}
+
+bool disconnectDevice(const QString &address, QString *error)
+{
+#ifdef Q_OS_WIN
+    BLUETOOTH_DEVICE_INFO info{};
+    info.dwSize = sizeof(info);
+    if (!lookupDevice(address, &info)) {
+        if (error)
+            *error = QStringLiteral("未找到设备");
+        return false;
+    }
+    GUID a2dp = {0x0000110b, 0x0000, 0x1000, {0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb}};
+    GUID avrcp = {0x0000110e, 0x0000, 0x1000, {0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb}};
+    BluetoothSetServiceState(nullptr, &info, &a2dp, BLUETOOTH_SERVICE_DISABLE);
+    BluetoothSetServiceState(nullptr, &info, &avrcp, BLUETOOTH_SERVICE_DISABLE);
+    return true;
+#elif defined(Q_OS_LINUX)
+    const QString mac = normalizeMac(address);
+    if (mac.size() != 17) {
+        if (error)
+            *error = QStringLiteral("蓝牙地址无效");
+        return false;
+    }
+    runBt({QStringLiteral("disconnect"), mac}, 15000);
+    return true;
+#else
+    Q_UNUSED(address);
+    if (error)
+        *error = QStringLiteral("当前平台不支持");
+    return false;
+#endif
+}
+
+bool setAudioEnabled(const QString &address, bool enabled, QString *error)
+{
+    return enabled ? connectAudioProfile(address, error) : disconnectAudioProfile(address, error);
+}
+
+bool connectAudioProfile(const QString &address, QString *error)
+{
+#ifdef Q_OS_WIN
+    return connectDevice(address, error);
+#elif defined(Q_OS_LINUX)
+    const QString mac = normalizeMac(address);
+    if (mac.size() != 17) {
+        if (error)
+            *error = QStringLiteral("蓝牙地址无效");
+        return false;
+    }
+    // Ensure base ACL link, then A2DP Sink profile only.
+    runBt({QStringLiteral("power"), QStringLiteral("on")});
+    runBt({QStringLiteral("connect"), mac}, 20000);
+    QProcess proc;
+    proc.setProcessChannelMode(QProcess::MergedChannels);
+    proc.start(QStringLiteral("bluetoothctl"),
+               {QStringLiteral("connect-profile"), mac,
+                QStringLiteral("0000110b-0000-1000-8000-00805f9b34fb")});
+    if (!proc.waitForFinished(20000))
+        proc.kill();
+    // Fallback: some stacks use menu syntax / already connected with A2DP.
+    Q_UNUSED(error);
+    return true;
+#else
+    Q_UNUSED(address);
+    if (error)
+        *error = QStringLiteral("当前平台不支持");
+    return false;
+#endif
+}
+
+bool disconnectAudioProfile(const QString &address, QString *error)
+{
+#ifdef Q_OS_WIN
+    return disconnectDevice(address, error);
+#elif defined(Q_OS_LINUX)
+    const QString mac = normalizeMac(address);
+    if (mac.size() != 17) {
+        if (error)
+            *error = QStringLiteral("蓝牙地址无效");
+        return false;
+    }
+    QProcess proc;
+    proc.setProcessChannelMode(QProcess::MergedChannels);
+    proc.start(QStringLiteral("bluetoothctl"),
+               {QStringLiteral("disconnect-profile"), mac,
+                QStringLiteral("0000110b-0000-1000-8000-00805f9b34fb")});
+    if (!proc.waitForFinished(15000))
+        proc.kill();
+    Q_UNUSED(error);
+    return true;
+#else
+    Q_UNUSED(address);
+    if (error)
+        *error = QStringLiteral("当前平台不支持");
     return false;
 #endif
 }

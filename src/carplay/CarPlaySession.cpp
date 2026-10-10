@@ -2,11 +2,16 @@
 
 #include "BluetoothDevices.hpp"
 #include "BluetoothRfcomm.hpp"
+#include "CallSession.hpp"
 #include "ExistingWifi.hpp"
+#include "GpsSource.hpp"
 #include "Iap2LinkEngine.hpp"
+#include "MediaSession.hpp"
+#include "NavSession.hpp"
 #include "Iap2LinkSession.hpp"
 #include "Iap2Protocol.hpp"
 #include "Iap2WirelessBootstrap.hpp"
+#include "WifiAccessPoint.hpp"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -117,10 +122,32 @@ CarPlaySession::CarPlaySession(QObject *parent)
         setStatus(QStringLiteral("会话激活"));
         setDetail(QStringLiteral("RECORD · CarPlay 会话进行中"));
         carPlayLog(QStringLiteral("airplay session active"));
+        m_airPlay.setNightMode(m_nightMode);
+        sendLocationNow();
     });
     connect(&m_airPlay, &AirPlayServer::videoFrameChanged, this, &CarPlaySession::videoFrameChanged);
     connect(&m_airPlay, &AirPlayServer::hostUiRequested, this, &CarPlaySession::hostUiRequested);
+    connect(&m_airPlay, &AirPlayServer::nowPlayingInfo, this,
+            [this](const QString &title, const QString &artist, bool playing, int positionSec,
+                   int durationSec) {
+                if (m_media)
+                    m_media->applyRemoteNowPlaying(title, artist, playing, positionSec, durationSec);
+            });
+    connect(&m_airPlay, &AirPlayServer::navigationInfo, this,
+            [this](bool active, const QString &text, const QString &turn, int speedLimit, int etaMin,
+                   const QString &destination) {
+                if (m_nav)
+                    m_nav->applyRemote(active, text, turn, speedLimit, etaMin, destination);
+            });
+    connect(&m_airPlay, &AirPlayServer::telephonyInfo, this,
+            [this](bool active, bool ringing, const QString &name, const QString &number) {
+                if (m_call)
+                    m_call->applyRemote(active, ringing, name, number);
+            });
     connect(&m_airPlay, &AirPlayServer::log, this, [this](const QString &msg) {
+        if (msg.startsWith(QLatin1String("touch "))
+            && !msg.startsWith(QLatin1String("touch dropped")))
+            return;
         setDetail(msg);
         carPlayLog(QStringLiteral("airplay %1").arg(msg));
     });
@@ -154,6 +181,53 @@ CarPlaySession::CarPlaySession(QObject *parent)
 CarPlaySession::~CarPlaySession()
 {
     stopInternal();
+    if (m_btThread) {
+        m_btThread->disconnect(this);
+        m_btThread->requestInterruption();
+        m_btThread->wait(5000);
+        delete m_btThread;
+        m_btThread = nullptr;
+    }
+}
+
+void CarPlaySession::setGpsSource(GpsSource *gps)
+{
+    if (m_gps == gps)
+        return;
+    if (m_gps)
+        disconnect(m_gps, nullptr, this, nullptr);
+    m_gps = gps;
+    if (m_gps)
+        connect(m_gps, &GpsSource::positionUpdated, this, &CarPlaySession::onGpsUpdated);
+}
+
+void CarPlaySession::setMediaSession(MediaSession *media)
+{
+    m_media = media;
+}
+
+void CarPlaySession::setNavSession(NavSession *nav)
+{
+    m_nav = nav;
+}
+
+void CarPlaySession::setCallSession(CallSession *call)
+{
+    m_call = call;
+}
+
+void CarPlaySession::onGpsUpdated()
+{
+    if (m_running && m_airPlayUp.load())
+        sendLocationNow();
+}
+
+bool CarPlaySession::sendLocationNow()
+{
+    if (!m_gps || !m_gps->hasFix())
+        return false;
+    return m_airPlay.sendLocation(m_gps->latitude(), m_gps->longitude(), m_gps->altitude(),
+                                  m_gps->speedMps(), m_gps->course(), m_gps->accuracy());
 }
 
 QString CarPlaySession::status() const { return m_status; }
@@ -163,10 +237,16 @@ bool CarPlaySession::running() const { return m_running; }
 
 bool CarPlaySession::canStart() const
 {
+#ifdef Q_OS_LINUX
+    const bool wifiOk = m_wifiConnected
+        || !qEnvironmentVariableIsSet("IVI_CARPLAY_WIFI_CLIENT");
+#else
+    const bool wifiOk = m_wifiConnected && !m_wifiPassword.isEmpty();
+#endif
     return !m_running
+        && !(m_btThread && m_btThread->isRunning())
         && m_mfi.isReady()
-        && m_wifiConnected
-        && !m_wifiPassword.isEmpty()
+        && wifiOk
         && m_bluetoothAddress.size() == 17
         && BluetoothDevices::isPaired(m_bluetoothAddress);
 }
@@ -193,6 +273,22 @@ QImage CarPlaySession::videoFrame() const { return m_airPlay.videoFrame(); }
 bool CarPlaySession::hasVideo() const { return !m_airPlay.videoFrame().isNull(); }
 int CarPlaySession::displayWidth() const { return m_airPlay.displayWidth(); }
 int CarPlaySession::displayHeight() const { return m_airPlay.displayHeight(); }
+int CarPlaySession::safeAreaTop() const { return m_airPlay.safeAreaTop(); }
+int CarPlaySession::safeAreaBottom() const { return m_airPlay.safeAreaBottom(); }
+int CarPlaySession::safeAreaLeft() const { return m_airPlay.safeAreaLeft(); }
+int CarPlaySession::safeAreaRight() const { return m_airPlay.safeAreaRight(); }
+bool CarPlaySession::nightMode() const { return m_nightMode; }
+
+void CarPlaySession::setNightMode(bool night)
+{
+    if (m_nightMode == night)
+        return;
+    m_nightMode = night;
+    saveSettings();
+    emit nightModeChanged();
+    if (m_running)
+        m_airPlay.setNightMode(night);
+}
 
 void CarPlaySession::setDisplaySize(int width, int height)
 {
@@ -200,9 +296,21 @@ void CarPlaySession::setDisplaySize(int width, int height)
     emit displaySizeChanged();
 }
 
+void CarPlaySession::setSafeAreaInsets(int top, int bottom, int left, int right)
+{
+    m_airPlay.setSafeAreaInsets(top, bottom, left, right);
+    saveSettings();
+    emit safeAreaChanged();
+}
+
 void CarPlaySession::sendTouch(double xNorm, double yNorm, bool down)
 {
     m_airPlay.sendTouch(xNorm, yNorm, down);
+}
+
+bool CarPlaySession::sendHardKey(const QString &key, bool down)
+{
+    return m_airPlay.sendHardKey(key, down);
 }
 
 void CarPlaySession::loadSettings()
@@ -214,6 +322,11 @@ void CarPlaySession::loadSettings()
     m_wifiSsid = settings.value(QStringLiteral("wifiSsid")).toString();
     m_wifiPassword = settings.value(QStringLiteral("wifiPassword")).toString();
     m_lastPhoneIp = settings.value(QStringLiteral("lastPhoneIp")).toString().trimmed();
+    m_nightMode = settings.value(QStringLiteral("nightMode"), false).toBool();
+    m_airPlay.setSafeAreaInsets(settings.value(QStringLiteral("safeTop"), 0).toInt(),
+                                settings.value(QStringLiteral("safeBottom"), 0).toInt(),
+                                settings.value(QStringLiteral("safeLeft"), 0).toInt(),
+                                settings.value(QStringLiteral("safeRight"), 0).toInt());
     settings.endGroup();
 }
 
@@ -226,6 +339,11 @@ void CarPlaySession::saveSettings() const
     settings.setValue(QStringLiteral("wifiSsid"), m_wifiSsid);
     settings.setValue(QStringLiteral("wifiPassword"), m_wifiPassword);
     settings.setValue(QStringLiteral("lastPhoneIp"), m_lastPhoneIp);
+    settings.setValue(QStringLiteral("nightMode"), m_nightMode);
+    settings.setValue(QStringLiteral("safeTop"), m_airPlay.safeAreaTop());
+    settings.setValue(QStringLiteral("safeBottom"), m_airPlay.safeAreaBottom());
+    settings.setValue(QStringLiteral("safeLeft"), m_airPlay.safeAreaLeft());
+    settings.setValue(QStringLiteral("safeRight"), m_airPlay.safeAreaRight());
     settings.endGroup();
 }
 
@@ -452,13 +570,6 @@ void CarPlaySession::emitCanStart()
 
 void CarPlaySession::reconnectLast()
 {
-    refreshWifi();
-    refreshBluetooth();
-    if (!canStart()) {
-        setStatus(QStringLiteral("等待连接"));
-        setDetail(QStringLiteral("请确认上次手机、Wi‑Fi 与密码仍可用"));
-        return;
-    }
     start();
 }
 
@@ -468,6 +579,15 @@ void CarPlaySession::start()
     if (m_running) {
         setDetail(QStringLiteral("正在连接中，请先点「断开」"));
         return;
+    }
+    if (m_btThread) {
+        if (m_btThread->isRunning()) {
+            setDetail(QStringLiteral("正在断开，请稍候"));
+            return;
+        }
+        m_btThread->disconnect(this);
+        m_btThread->deleteLater();
+        m_btThread = nullptr;
     }
     if (!m_mfi.isReady()) {
         reloadIdentity();
@@ -481,7 +601,12 @@ void CarPlaySession::start()
 
     refreshWifi();
     refreshBluetooth();
-    if (!m_wifiConnected) {
+#ifdef Q_OS_LINUX
+    const bool canUseAp = !qEnvironmentVariableIsSet("IVI_CARPLAY_WIFI_CLIENT");
+#else
+    const bool canUseAp = false;
+#endif
+    if (!m_wifiConnected && !canUseAp) {
         setStatus(QStringLiteral("需要 Wi‑Fi"));
         setDetail(QStringLiteral("请先选择并连接 Wi‑Fi"));
         emitCanStart();
@@ -520,25 +645,68 @@ void CarPlaySession::stopInternal()
     m_airPlayWatchdog.stop();
     m_airPlayNudge.stop();
     m_airPlayUp.store(true);
-    if (m_btThread) {
+    setRunning(false);
+    if (m_btThread)
         m_btThread->requestInterruption();
-        m_btThread->wait(5000);
-        delete m_btThread;
-        m_btThread = nullptr;
-    }
     m_bonjour.stop();
     m_airPlay.stop();
+    WifiAccessPoint::instance().stop();
     m_airPlayUp.store(false);
-    setRunning(false);
+    if (m_media)
+        m_media->clearRemoteNowPlaying();
+    if (m_nav)
+        m_nav->applyRemote(false, {}, {}, 0, 0, {});
+    if (m_call)
+        m_call->applyRemote(false, false, {}, {});
+    emitCanStart();
 }
 
 void CarPlaySession::beginWireless()
 {
-    const ExistingWifi wifi = ExistingWifi::query();
+    ExistingWifi wifi = ExistingWifi::query();
+#ifdef Q_OS_LINUX
+    const bool forceClient = qEnvironmentVariableIsSet("IVI_CARPLAY_WIFI_CLIENT");
+    const bool preferAp = !forceClient
+        && (qEnvironmentVariableIsSet("IVI_CARPLAY_AP") || !ExistingWifi::isConnected());
+    if (preferAp) {
+        QString ssid = m_wifiSsid.isEmpty() ? QStringLiteral("MP157-CarPlay") : m_wifiSsid;
+        QString pass = m_wifiPassword;
+        if (pass.size() < 8)
+            pass = QStringLiteral("mp157ivi");
+        QString apError;
+        setStatus(QStringLiteral("启动热点"));
+        setDetail(QStringLiteral("%1 · ch6").arg(ssid));
+        if (WifiAccessPoint::instance().start(ssid, pass, 6, &apError)) {
+            const auto ap = WifiAccessPoint::instance().info();
+            wifi.ssid = ap.ssid;
+            wifi.ipv4 = ap.ipv4;
+            wifi.mac = ap.mac;
+            wifi.channel = ap.channel;
+            wifi.bssid = ap.bssid;
+            m_wifiSsid = ap.ssid;
+            m_wifiPassword = ap.password;
+            m_wifiConnected = true;
+            saveSettings();
+            emit wifiChanged();
+            carPlayLog(QStringLiteral("access point up ssid=%1 ip=%2 ch=%3")
+                           .arg(ap.ssid, ap.ipv4)
+                           .arg(ap.channel));
+        } else {
+            carPlayLog(QStringLiteral("access point failed: %1").arg(apError));
+            if (!ExistingWifi::isConnected()) {
+                setStatus(QStringLiteral("热点失败"));
+                setDetail(apError);
+                setRunning(false);
+                return;
+            }
+        }
+    }
+#endif
+
     const QString ipv4 = wifi.ipv4.isEmpty() ? ExistingWifi::primaryIpv4() : wifi.ipv4;
     if (ipv4.isEmpty()) {
         setStatus(QStringLiteral("无 IPv4"));
-        setDetail(QStringLiteral("电脑未接入可用局域网"));
+        setDetail(QStringLiteral("未接入可用局域网"));
         setRunning(false);
         return;
     }
@@ -554,8 +722,11 @@ void CarPlaySession::beginWireless()
     }
     ExistingWifi wifiInfo = wifi;
     if (wifiInfo.channel <= 0) {
-        // Last resort: parse again; never send ch=0 to the phone.
         wifiInfo = ExistingWifi::query();
+    }
+    if (wifiInfo.channel <= 0 && WifiAccessPoint::instance().isRunning()) {
+        wifiInfo.channel = WifiAccessPoint::instance().info().channel;
+        wifiInfo.bssid = WifiAccessPoint::instance().info().bssid;
     }
     if (wifiInfo.channel <= 0) {
         setStatus(QStringLiteral("无法读取 Wi‑Fi 信道"));
@@ -698,6 +869,8 @@ void CarPlaySession::beginWireless()
         link.stop();
         rfcomm.disconnectFromHost();
 
+        if (QThread::currentThread()->isInterruptionRequested() || !m_running)
+            return;
         if (result.status != Iap2WirelessBootstrap::Status::Ok && !m_airPlayUp.load()) {
             report(QStringLiteral("蓝牙握手失败"), result.error);
             QMetaObject::invokeMethod(this, [this] { stopInternal(); }, Qt::QueuedConnection);

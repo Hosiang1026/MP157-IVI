@@ -3,8 +3,6 @@ import Ivi.Services 1.0
 
 Item {
     id: root
-    property string query: ""
-    property bool editing: false
     readonly property color ink: "#FFFFFF"
     readonly property color muted: "#CCFFFFFF"
     readonly property color glass: "#28FFFFFF"
@@ -110,211 +108,9 @@ Item {
         anchors.bottomMargin: 8
         spacing: 10
 
-        Rectangle {
-            width: parent.width
-            height: 168
-            radius: 16
-            color: root.glass
-            border.color: "#22FFFFFF"
-            border.width: 1
-            clip: true
-            visible: root.editing
-
-            Column {
-                anchors.fill: parent
-                anchors.margins: 10
-                spacing: 8
-
-                Item {
-                    width: parent.width
-                    height: 32
-
-                    Flickable {
-                        anchors.left: parent.left
-                        anchors.right: doneBtn.left
-                        anchors.rightMargin: 8
-                        anchors.verticalCenter: parent.verticalCenter
-                        height: 36
-                        contentWidth: cityRow.width
-                        clip: true
-                        flickableDirection: Flickable.HorizontalFlick
-                        boundsBehavior: Flickable.StopAtBounds
-
-                        Row {
-                            id: cityRow
-                            spacing: 6
-                            Repeater {
-                                model: Weather.cities
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    required property int index
-                                    width: cityLabel.implicitWidth + (!modelData.autoLocate ? 44 : 24)
-                                    height: 34
-                                    radius: 17
-                                    color: Weather.cityIndex === index ? root.chipOn : root.chipOff
-                                    border.color: "#33FFFFFF"
-                                    border.width: Weather.cityIndex === index ? 0 : 1
-                                    Row {
-                                        anchors.centerIn: parent
-                                        spacing: 4
-                                        Text {
-                                            id: cityLabel
-                                            text: modelData.name.length > 0 ? modelData.name : "定位中"
-                                            color: root.ink
-                                            font.pixelSize: 14
-                                        }
-                                        Rectangle {
-                                            visible: !modelData.autoLocate
-                                            width: 18
-                                            height: 18
-                                            radius: 9
-                                            color: "#55FF3B30"
-                                            Text {
-                                                anchors.centerIn: parent
-                                                text: "×"
-                                                color: "#FFFFFF"
-                                                font.pixelSize: 14
-                                            }
-                                            MouseArea {
-                                                anchors.fill: parent
-                                                onClicked: Weather.removeCity(index)
-                                            }
-                                        }
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        z: -1
-                                        onClicked: Weather.selectCity(index)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        id: doneBtn
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 64
-                        height: 32
-                        radius: 8
-                        color: root.chipOn
-                        Text {
-                            anchors.centerIn: parent
-                            text: "完成"
-                            color: root.ink
-                            font.pixelSize: 13
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: {
-                                root.editing = false
-                                root.query = ""
-                                Weather.clearSearch()
-                            }
-                        }
-                    }
-                }
-
-                Row {
-                    width: parent.width
-                    height: 36
-                    spacing: 8
-
-                    Rectangle {
-                        width: parent.width - 80
-                        height: 36
-                        radius: 8
-                        color: root.chipOff
-                        TextInput {
-                            id: searchInput
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 12
-                            verticalAlignment: Text.AlignVCenter
-                            color: root.ink
-                            font.pixelSize: 14
-                            clip: true
-                            text: root.query
-                            onTextChanged: root.query = text
-                            Keys.onReturnPressed: Weather.searchCities(root.query)
-                            Keys.onEnterPressed: Weather.searchCities(root.query)
-                        }
-                        Text {
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            text: "搜索城市"
-                            color: root.muted
-                            font.pixelSize: 14
-                            verticalAlignment: Text.AlignVCenter
-                            visible: searchInput.text.length === 0 && !searchInput.activeFocus
-                        }
-                    }
-                    Rectangle {
-                        width: 72
-                        height: 36
-                        radius: 8
-                        color: root.chipOn
-                        Text {
-                            anchors.centerIn: parent
-                            text: "搜索"
-                            color: root.ink
-                            font.pixelSize: 14
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: Weather.searchCities(root.query)
-                        }
-                    }
-                }
-
-                Flickable {
-                    width: parent.width
-                    height: 60
-                    clip: true
-                    contentWidth: resultRow.width
-                    flickableDirection: Flickable.HorizontalFlick
-                    boundsBehavior: Flickable.StopAtBounds
-
-                    Row {
-                        id: resultRow
-                        spacing: 6
-                        Repeater {
-                            model: Weather.searchResults
-                            delegate: Rectangle {
-                                required property var modelData
-                                width: Math.min(200, resultLabel.implicitWidth + 24)
-                                height: 36
-                                radius: 8
-                                color: root.chipOff
-                                Text {
-                                    id: resultLabel
-                                    anchors.centerIn: parent
-                                    width: parent.width - 16
-                                    elide: Text.ElideRight
-                                    horizontalAlignment: Text.AlignHCenter
-                                    text: modelData.label
-                                    color: root.ink
-                                    font.pixelSize: 13
-                                }
-                                MouseArea {
-                                    anchors.fill: parent
-                                    onClicked: {
-                                        Weather.addCity(modelData.name, modelData.lat, modelData.lon)
-                                        root.query = ""
-                                        root.editing = false
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         Item {
             width: parent.width
-            height: parent.height - (root.editing ? 178 : 0)
+            height: parent.height
             clip: true
 
             Flickable {
@@ -368,11 +164,6 @@ Item {
                             color: root.ink
                             font.pixelSize: 28
                             font.bold: true
-                            MouseArea {
-                                anchors.fill: parent
-                                anchors.margins: -8
-                                onClicked: root.editing = true
-                            }
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter

@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -39,6 +40,7 @@ WallpaperStore::WallpaperStore(QObject *parent)
         m_current = fileUrl(saved);
     else if (!m_items.isEmpty())
         m_current = m_items.first().toMap().value(QStringLiteral("path")).toString();
+    refreshBackdrop();
 }
 
 QString WallpaperStore::current() const
@@ -49,6 +51,11 @@ QString WallpaperStore::current() const
 QVariantList WallpaperStore::items() const
 {
     return m_items;
+}
+
+bool WallpaperStore::darkBackdrop() const
+{
+    return m_darkBackdrop;
 }
 
 void WallpaperStore::select(const QString &path)
@@ -121,6 +128,35 @@ void WallpaperStore::setCurrent(const QString &filePath)
         return;
     m_current = url;
     emit currentChanged();
+    refreshBackdrop();
+}
+
+void WallpaperStore::refreshBackdrop()
+{
+    bool dark = true;
+    const QString local = QUrl(m_current).isLocalFile() ? QUrl(m_current).toLocalFile() : m_current;
+    QImage image(local);
+    if (!image.isNull()) {
+        const QImage sample = image.scaled(48, 48, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                                  .convertToFormat(QImage::Format_RGB32);
+        qint64 sum = 0;
+        int count = 0;
+        const int y0 = sample.height() * 2 / 3;
+        for (int y = y0; y < sample.height(); ++y) {
+            const QRgb *line = reinterpret_cast<const QRgb *>(sample.constScanLine(y));
+            for (int x = 0; x < sample.width(); ++x) {
+                const QRgb c = line[x];
+                sum += qRed(c) * 299 + qGreen(c) * 587 + qBlue(c) * 114;
+                ++count;
+            }
+        }
+        if (count > 0)
+            dark = (sum / count) < 140000;
+    }
+    if (m_darkBackdrop == dark)
+        return;
+    m_darkBackdrop = dark;
+    emit darkBackdropChanged();
 }
 
 bool WallpaperStore::copyIn(const QString &sourcePath)

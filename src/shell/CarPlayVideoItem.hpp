@@ -3,6 +3,7 @@
 #include "CarPlaySession.hpp"
 
 #include <QImage>
+#include <QMutex>
 #include <QQuickPaintedItem>
 
 class CarPlayVideoItem : public QQuickPaintedItem {
@@ -28,13 +29,18 @@ signals:
     void sessionChanged();
     void contentRectChanged();
 
+protected:
+    void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+
 private slots:
     void onFrame();
 
 private:
     void refreshContentRect();
+    QImage snapshotFrame() const;
 
     CarPlaySession *m_session = nullptr;
+    mutable QMutex m_mutex;
     QImage m_frame;
     QRectF m_content;
 };
